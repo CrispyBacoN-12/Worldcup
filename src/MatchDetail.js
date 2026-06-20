@@ -6,6 +6,7 @@ import { usePoints } from './PointsContext';
 import './MatchDetail.css';
 
 const BETTABLE = ['SCHEDULED', 'TIMED'];
+const API_BASE = `${process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'}/api`;
 
 const MatchDetail = () => {
   const { matchId } = useParams();
@@ -25,7 +26,7 @@ const MatchDetail = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const matchRes = await axios.get(`/api/matches/${matchId}`);
+        const matchRes = await axios.get(`${API_BASE}/matches/${matchId}`);
         setMatch(matchRes.data);
       } catch {
         if (!staticMatch) setError('Failed to load match details.');

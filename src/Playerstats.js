@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import './PlayerStats.css';
 
-const BASE_URL = '/api';
+const BASE_URL = `${process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'}/api`;
 
 const PlayerStats = () => {
   const [scorers, setScorers] = useState([]);

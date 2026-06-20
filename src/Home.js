@@ -4,7 +4,7 @@ import axios from 'axios';
 import fixtures from './data/fixtures.json';
 import './Home.css';
 
-const BASE_URL = '/api';
+const BASE_URL = `${process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'}/api`;
 
 const baseMatches = fixtures
   .slice()
