@@ -8,6 +8,7 @@ import Standings from './Standings';
 import Prediction from './Prediction';
 import PlayerStats from './Playerstats';
 import MatchDetail from './MatchDetail';
+import MatchHistory from './MatchHistory';
 import PredictionHistory from './PredictionHistory';
 import Login from './Login';
 import './App.css';
@@ -31,6 +32,7 @@ const AppRoutes = () => {
           <Route path="/prediction" element={<ProtectedRoute><Prediction /></ProtectedRoute>} />
           <Route path="/players" element={<ProtectedRoute><PlayerStats /></ProtectedRoute>} />
           <Route path="/match/:matchId" element={<ProtectedRoute><MatchDetail /></ProtectedRoute>} />
+          <Route path="/history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
           <Route path="/predictions" element={<ProtectedRoute><PredictionHistory /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

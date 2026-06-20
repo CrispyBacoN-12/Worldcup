@@ -4,6 +4,7 @@ import axios from 'axios';
 import fixtures from './data/fixtures.json';
 import { statusLabel, formatDate } from './matchUtils';
 import './Home.css';
+import './MatchHistory.css';
 
 const BASE_URL = `${process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'}/api`;
 
@@ -12,10 +13,9 @@ const baseMatches = fixtures
   .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate))
   .map((f) => ({ ...f, status: 'SCHEDULED', score: { fullTime: { home: null, away: null } } }));
 
-const Home = () => {
+const MatchHistory = () => {
   const [matches, setMatches] = useState(baseMatches);
   const [liveError, setLiveError] = useState(false);
-  const [filter, setFilter] = useState('ALL');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,40 +31,28 @@ const Home = () => {
     fetchLiveData();
   }, []);
 
-  const filtered = matches
-    .filter(m => m.status !== 'FINISHED')
-    .filter(m => filter === 'ALL' || m.status === filter);
+  const finished = matches
+    .filter((m) => m.status === 'FINISHED')
+    .sort((a, b) => new Date(b.utcDate) - new Date(a.utcDate));
 
   return (
-    <div className="home-page">
+    <div className="home-page history-page">
       <div className="page-header">
-        <h1 className="page-title">MATCH RESULTS</h1>
-        <p className="page-subtitle">FIFA World Cup 2026</p>
+        <h1 className="page-title">MATCH HISTORY</h1>
+        <p className="page-subtitle">FIFA World Cup 2026 — Completed Matches</p>
       </div>
 
       {liveError && (
         <div className="error-box" style={{ marginBottom: '1rem' }}>
-          Showing scheduled fixtures — live scores are temporarily unavailable.
+          Live results are temporarily unavailable.
         </div>
       )}
 
-      <div className="filter-tabs">
-        {['ALL', 'IN_PLAY', 'SCHEDULED'].map(f => (
-          <button
-            key={f}
-            className={`filter-tab ${filter === f ? 'active' : ''}`}
-            onClick={() => setFilter(f)}
-          >
-            {f === 'ALL' ? 'All' : f === 'IN_PLAY' ? 'Live' : 'Upcoming'}
-          </button>
-        ))}
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="empty-state">No matches found for this filter.</div>
+      {finished.length === 0 ? (
+        <div className="empty-state">No matches have finished yet.</div>
       ) : (
         <div className="matches-list">
-          {filtered.map(match => {
+          {finished.map(match => {
             const { label, cls } = statusLabel(match.status);
             const home = match.homeTeam;
             const away = match.awayTeam;
@@ -84,11 +72,7 @@ const Home = () => {
                   </div>
 
                   <div className="score-box">
-                    {match.status === 'FINISHED' || match.status === 'IN_PLAY' || match.status === 'PAUSED' ? (
-                      <span className="score">{score.home ?? '-'} : {score.away ?? '-'}</span>
-                    ) : (
-                      <span className="score vs">VS</span>
-                    )}
+                    <span className="score">{score.home ?? '-'} : {score.away ?? '-'}</span>
                   </div>
 
                   <div className="team away">
@@ -105,4 +89,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+export default MatchHistory;

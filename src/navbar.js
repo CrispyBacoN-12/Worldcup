@@ -33,6 +33,7 @@ const Navbar = () => {
           <li><NavLink to="/players" onClick={() => setMenuOpen(false)}>Players</NavLink></li>
           <li><NavLink to="/prediction" onClick={() => setMenuOpen(false)}>Predict</NavLink></li>
           <li><NavLink to="/predictions" onClick={() => setMenuOpen(false)}>My Predictions</NavLink></li>
+          <li><NavLink to="/history" onClick={() => setMenuOpen(false)}>History</NavLink></li>
         </ul>
 
         <div className="navbar-user">
