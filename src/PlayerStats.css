@@ -1,0 +1,71 @@
+.players-page {}
+
+.scorers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scorer-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1rem 1.25rem;
+}
+
+.scorer-rank {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 1.3rem;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: center;
+}
+
+.scorer-info { flex: 1; }
+
+.scorer-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.3rem;
+}
+
+.scorer-team {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.mini-crest {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.scorer-stats {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.stat-value {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 1.5rem;
+  color: var(--accent-gold);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}

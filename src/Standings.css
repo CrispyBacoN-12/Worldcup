@@ -1,0 +1,77 @@
+.standings-page {}
+
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 1.25rem;
+}
+
+.group-card { padding: 1.25rem; }
+
+.group-name {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 1.3rem;
+  letter-spacing: 3px;
+  color: var(--accent-gold);
+  margin-bottom: 1rem;
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.standings-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 0 0.4rem 0.6rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.standings-table th:nth-child(2) { text-align: left; }
+
+.standings-table td {
+  padding: 0.55rem 0.4rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(30, 45, 71, 0.5);
+  color: var(--text-secondary);
+}
+
+.standings-table tr:last-child td { border-bottom: none; }
+
+.standings-table td:nth-child(2) { text-align: left; }
+
+.standings-table tr.qualify td { color: var(--text-primary); }
+
+.standings-table tr.qualify td.pos {
+  color: var(--accent-gold);
+  font-weight: 700;
+}
+
+.team-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 120px;
+}
+
+.mini-crest {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.pts {
+  font-weight: 700;
+  color: var(--text-primary) !important;
+}
+
+.gd-pos { color: #4ade80 !important; }
+.gd-neg { color: var(--accent-red) !important; }
+
+.pos { color: var(--text-muted); font-weight: 600; }
