@@ -22,7 +22,7 @@ const MatchDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const { predictions, submitPrediction, availableBalance } = usePoints();
+  const { predictions, submitPrediction, availableBalance, getMultiplier } = usePoints();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -42,6 +42,8 @@ const MatchDetail = () => {
 
   const stakeValue = Number(stake);
   const stakeIsValid = stake !== '' && Number.isInteger(stakeValue) && stakeValue > 0 && stakeValue <= availableBalance;
+  const multiplier = sel ? getMultiplier(Number(matchId), sel) : null;
+  const potentialPayout = multiplier && stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
 
   const handleSubmit = async () => {
     if (!sel || !stakeIsValid) return;
@@ -177,16 +179,27 @@ const MatchDetail = () => {
               <div className="bet-form-section">
                 <div className="detail-score-predict">
                   <span className="detail-score-label">ใส่จำนวนเงินที่ต้องการเดิมพัน (คงเหลือ ${availableBalance})</span>
-                  <div className="detail-score-inputs">
-                    <input
-                      type="number"
-                      min="1"
-                      className="detail-score-input"
-                      value={stake}
-                      onChange={(e) => setStake(e.target.value)}
-                      disabled={!sel}
-                      placeholder="0"
-                    />
+                  <div className="stake-input-row">
+                    <div className="stake-input-wrapper">
+                      <span className="stake-input-prefix">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        className="stake-input"
+                        value={stake}
+                        onChange={(e) => setStake(e.target.value)}
+                        disabled={!sel}
+                        placeholder="0"
+                      />
+                    </div>
+                    {sel && (
+                      <div className="payout-preview">
+                        <span className="payout-preview-text">
+                          {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
+                        </span>
+                        <span className="odds-badge">×{multiplier}</span>
+                      </div>
+                    )}
                   </div>
                   {stake !== '' && !stakeIsValid && (
                     <span className="detail-score-warning">ใส่จำนวนเงินที่ถูกต้องและไม่เกินยอดคงเหลือ</span>

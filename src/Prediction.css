@@ -225,6 +225,68 @@
 .bet-submit-btn:hover:not(:disabled) { opacity: 0.88; }
 .bet-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.stake-input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 0.6rem;
+  transition: border-color 0.2s;
+}
+
+.stake-input-wrapper:focus-within {
+  border-color: var(--accent-gold);
+}
+
+.stake-input-prefix {
+  color: var(--accent-gold);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1rem;
+  margin-right: 0.3rem;
+}
+
+.stake-input {
+  width: 80px;
+  padding: 0.5rem 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+}
+
+.stake-input:focus { outline: none; }
+.stake-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.payout-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid var(--border-gold);
+  border-radius: 8px;
+}
+
+.payout-preview-text {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 0.9rem;
+  color: var(--accent-gold);
+  letter-spacing: 0.5px;
+}
+
+.odds-badge {
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--bg-primary);
+  background: var(--gradient-gold);
+  padding: 0.15rem 0.45rem;
+  border-radius: 5px;
+}
+
 .btn-spinner-small {
   width: 14px;
   height: 14px;

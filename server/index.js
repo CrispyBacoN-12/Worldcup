@@ -294,6 +294,10 @@ app.get('/api/champion/teams', (req, res) => {
   res.json({ lockAt: new Date(CHAMPION_LOCK_AT).toISOString(), teams: championTeams });
 });
 
+app.get('/api/odds', (req, res) => {
+  res.json({ odds: matchOdds, defaultMultiplier: DEFAULT_ODDS_MULTIPLIER });
+});
+
 app.post('/api/champion-pick', verifyToken, (req, res) => {
   const { teamId } = req.body;
   const team = championTeamsById.get(teamId);

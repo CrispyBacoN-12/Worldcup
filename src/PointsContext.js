@@ -11,6 +11,22 @@ export const PointsProvider = ({ children }) => {
   const [dailyGrants, setDailyGrants] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [championPick, setChampionPick] = useState(null);
+  const [odds, setOdds] = useState({});
+  const [defaultMultiplier, setDefaultMultiplier] = useState(2);
+
+  useEffect(() => {
+    axios.get(`${BASE}/api/odds`)
+      .then((res) => {
+        setOdds(res.data.odds ?? {});
+        setDefaultMultiplier(res.data.defaultMultiplier ?? 2);
+      })
+      .catch(() => {});
+  }, []);
+
+  const getMultiplier = useCallback(
+    (matchId, outcome) => odds[matchId]?.[outcome] ?? defaultMultiplier,
+    [odds, defaultMultiplier]
+  );
 
   const fetchPoints = useCallback(async () => {
     if (!user) return;
@@ -53,7 +69,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, championPick, fetchPoints, submitPrediction, submitChampionPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, championPick, getMultiplier, fetchPoints, submitPrediction, submitChampionPick }}>
       {children}
     </PointsContext.Provider>
   );

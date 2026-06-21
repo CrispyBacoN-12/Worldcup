@@ -12,7 +12,7 @@ const Prediction = () => {
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance } = usePoints();
+  const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance, getMultiplier } = usePoints();
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('wc_predictions') || '{}');
@@ -190,25 +190,39 @@ const Prediction = () => {
                       ))}
                     </div>
 
-                    {pick && (
-                      <div className="bet-controls">
-                        <input
-                          type="number"
-                          min="1"
-                          className="score-input"
-                          placeholder="Stake $"
-                          value={stakes[match.id] ?? ''}
-                          onChange={(e) => setStake(match.id, e.target.value)}
-                        />
-                        <button
-                          className="bet-submit-btn"
-                          onClick={() => handleSubmitPick(match)}
-                          disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
-                        >
-                          {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
-                        </button>
-                      </div>
-                    )}
+                    {pick && (() => {
+                      const multiplier = getMultiplier(match.id, pick);
+                      const stakeValue = Number(stakes[match.id]);
+                      const potentialPayout = stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
+                      return (
+                        <div className="bet-controls">
+                          <div className="stake-input-wrapper">
+                            <span className="stake-input-prefix">$</span>
+                            <input
+                              type="number"
+                              min="1"
+                              className="stake-input"
+                              placeholder="0"
+                              value={stakes[match.id] ?? ''}
+                              onChange={(e) => setStake(match.id, e.target.value)}
+                            />
+                          </div>
+                          <div className="payout-preview">
+                            <span className="payout-preview-text">
+                              {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
+                            </span>
+                            <span className="odds-badge">×{multiplier}</span>
+                          </div>
+                          <button
+                            className="bet-submit-btn"
+                            onClick={() => handleSubmitPick(match)}
+                            disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
+                          >
+                            {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {pickErrors[match.id] && (
                       <div className="bet-error">{pickErrors[match.id]}</div>

@@ -520,6 +520,75 @@ button.odd-box:disabled {
   color: #ff6b7a;
 }
 
+.stake-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stake-input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 0.6rem;
+  transition: border-color 0.2s;
+}
+
+.stake-input-wrapper:focus-within {
+  border-color: var(--border-gold);
+}
+
+.stake-input-prefix {
+  color: var(--accent-gold-light);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1rem;
+  margin-right: 0.3rem;
+}
+
+.stake-input {
+  width: 90px;
+  padding: 0.5rem 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+}
+
+.stake-input:focus { outline: none; }
+.stake-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.payout-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid var(--border-gold);
+  border-radius: 8px;
+}
+
+.payout-preview-text {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 0.95rem;
+  color: var(--accent-gold-light);
+  letter-spacing: 0.5px;
+}
+
+.odds-badge {
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--bg-primary);
+  background: var(--gradient-gold);
+  padding: 0.15rem 0.45rem;
+  border-radius: 5px;
+}
+
 /* EXISTING BET */
 .detail-existing-bet {
   display: flex;
