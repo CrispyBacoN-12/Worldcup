@@ -21,6 +21,15 @@ const BASE = 'https://api.football-data.org/v4';
 const JWT_SECRET = process.env.JWT_SECRET;
 const USERS_FILE = nodePath.join(__dirname, 'users.json');
 const WALLET_FILE = nodePath.join(__dirname, 'wallet.json');
+const CHAMPION_TEAMS_FILE = nodePath.join(__dirname, 'data', 'championTeams.json');
+const championTeams = JSON.parse(fs.readFileSync(CHAMPION_TEAMS_FILE, 'utf8'));
+const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
+
+// Kickoff of the first LAST_32-stage match in src/data/fixtures.json — picks lock here.
+const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
+// The FINAL-stage match id from src/data/fixtures.json (teams resolve once the bracket completes).
+const FINAL_MATCH_ID = 537390;
+const CHAMPION_BASE_POINTS = 10;
 
 // ─── Football API request cache + throttle ──────────────────
 const apiCache = new Map(); // url -> { data, expiresAt }
@@ -138,6 +147,38 @@ const settlePredictions = async (username) => {
   if (changed) saveWallet(wallet);
 };
 
+// ─── Champion Pick Settlement ─────────────────────────────────
+const settleChampionPick = async (username) => {
+  const wallet = getWallet();
+  const userData = ensurePoints(wallet, username);
+  const pick = userData.championPick;
+  if (!pick || pick.status !== 'pending') return;
+
+  try {
+    const match = await fetchFootballData(`matches/${FINAL_MATCH_ID}`);
+    if (match.status !== 'FINISHED') return;
+
+    const winner = match.score.winner;
+    const championId =
+      winner === 'HOME_TEAM' ? match.homeTeam.id :
+      winner === 'AWAY_TEAM' ? match.awayTeam.id :
+      null;
+
+    const correct = championId != null && pick.teamId === championId;
+    const team = championTeamsById.get(pick.teamId);
+    const multiplier = team ? team.multiplier : 1;
+
+    pick.status = correct ? 'correct' : 'wrong';
+    pick.pointsAwarded = correct ? Math.round(CHAMPION_BASE_POINTS * multiplier) : 0;
+    pick.settledAt = new Date().toISOString();
+    if (correct) userData.points += pick.pointsAwarded;
+
+    saveWallet(wallet);
+  } catch {
+    // skip if the final match fetch fails
+  }
+};
+
 // A predicted score must agree with the chosen outcome (home wins, away
 // wins, or a draw) — there is no other valid combination.
 const scoreMatchesOutcome = (outcome, home, away) =>
@@ -189,10 +230,42 @@ app.post('/api/auth/login', async (req, res) => {
 // ─── Points Routes ───────────────────────────────────────────
 app.get('/api/points', verifyToken, async (req, res) => {
   await settlePredictions(req.user.username);
+  await settleChampionPick(req.user.username);
   const wallet = getWallet();
   const userData = ensurePoints(wallet, req.user.username);
   saveWallet(wallet);
   res.json(userData);
+});
+
+// ─── Champion Pick Routes ─────────────────────────────────────
+app.get('/api/champion/teams', (req, res) => {
+  res.json({ lockAt: new Date(CHAMPION_LOCK_AT).toISOString(), teams: championTeams });
+});
+
+app.post('/api/champion-pick', verifyToken, (req, res) => {
+  const { teamId } = req.body;
+  const team = championTeamsById.get(teamId);
+  if (!team)
+    return res.status(400).json({ error: 'Unknown team' });
+  if (Date.now() >= CHAMPION_LOCK_AT)
+    return res.status(400).json({ error: 'Champion picks are locked' });
+
+  const wallet = getWallet();
+  const userData = ensurePoints(wallet, req.user.username);
+
+  userData.championPick = {
+    teamId: team.id,
+    name: team.name,
+    shortName: team.shortName,
+    crest: team.crest,
+    placedAt: new Date().toISOString(),
+    status: 'pending',
+    pointsAwarded: null,
+    settledAt: null,
+  };
+  saveWallet(wallet);
+
+  res.json({ points: userData.points, championPick: userData.championPick });
 });
 
 const BETTABLE = ['SCHEDULED', 'TIMED'];

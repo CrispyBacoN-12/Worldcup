@@ -34,6 +34,7 @@ const Navbar = () => {
           <li><NavLink to="/prediction" onClick={() => setMenuOpen(false)}>Predict</NavLink></li>
           <li><NavLink to="/predictions" onClick={() => setMenuOpen(false)}>My Predictions</NavLink></li>
           <li><NavLink to="/history" onClick={() => setMenuOpen(false)}>History</NavLink></li>
+          <li><NavLink to="/champion" onClick={() => setMenuOpen(false)}>ทายแชมป์</NavLink></li>
         </ul>
 
         <div className="navbar-user">

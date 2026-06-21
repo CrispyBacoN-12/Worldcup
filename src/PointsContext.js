@@ -9,6 +9,7 @@ export const PointsProvider = ({ children }) => {
   const { user } = useAuth();
   const [points, setPoints] = useState(null);
   const [predictions, setPredictions] = useState([]);
+  const [championPick, setChampionPick] = useState(null);
 
   const fetchPoints = useCallback(async () => {
     if (!user) return;
@@ -18,6 +19,7 @@ export const PointsProvider = ({ children }) => {
       });
       setPoints(res.data.points);
       setPredictions(res.data.predictions);
+      setChampionPick(res.data.championPick ?? null);
     } catch {}
   }, [user]);
 
@@ -32,8 +34,17 @@ export const PointsProvider = ({ children }) => {
     return res.data;
   };
 
+  const submitChampionPick = async (teamId) => {
+    const res = await axios.post(`${BASE}/api/champion-pick`, { teamId }, {
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+    setPoints(res.data.points);
+    setChampionPick(res.data.championPick);
+    return res.data;
+  };
+
   return (
-    <PointsContext.Provider value={{ points, predictions, fetchPoints, submitPrediction }}>
+    <PointsContext.Provider value={{ points, predictions, championPick, fetchPoints, submitPrediction, submitChampionPick }}>
       {children}
     </PointsContext.Provider>
   );
