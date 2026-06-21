@@ -1,12 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import fixtures from './data/fixtures.json';
 import { usePoints } from './PointsContext';
 import './Prediction.css';
 
 const Prediction = () => {
-  const [predictions, setPredictions] = useState({});
-  const [saved, setSaved] = useState({});
-
   const [picks, setPicks] = useState({});          // { [matchId]: 'home'|'draw'|'away' }
   const [stakes, setStakes] = useState({});        // { [matchId]: string }
   const [pickLoading, setPickLoading] = useState({});
@@ -14,27 +11,10 @@ const Prediction = () => {
 
   const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance, getMultiplier } = usePoints();
 
-  useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('wc_predictions') || '{}');
-    setPredictions(stored);
-  }, []);
-
   const matches = fixtures
     .filter((m) => new Date(m.utcDate).getTime() > Date.now())
     .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate))
     .slice(0, 20);
-
-  const handleChange = (matchId, team, value) => {
-    setPredictions(prev => ({ ...prev, [matchId]: { ...prev[matchId], [team]: value } }));
-  };
-
-  const handleSave = (matchId) => {
-    const all = JSON.parse(localStorage.getItem('wc_predictions') || '{}');
-    all[matchId] = predictions[matchId];
-    localStorage.setItem('wc_predictions', JSON.stringify(all));
-    setSaved(prev => ({ ...prev, [matchId]: true }));
-    setTimeout(() => setSaved(prev => ({ ...prev, [matchId]: false })), 2000);
-  };
 
   const setPick = (matchId, outcome) => {
     setPicks(prev => ({ ...prev, [matchId]: prev[matchId] === outcome ? null : outcome }));
@@ -109,8 +89,6 @@ const Prediction = () => {
 
       <div className="prediction-list">
         {matches.map(match => {
-          const pred = predictions[match.id] || {};
-          const isSaved = saved[match.id];
           const pick = picks[match.id];
           const existing = serverPredictions?.find((p) => p.matchId === match.id);
 
@@ -123,30 +101,12 @@ const Prediction = () => {
                   {match.homeTeam.crest && <img src={match.homeTeam.crest} alt="" className="pred-crest" />}
                   <span>{match.homeTeam.shortName || match.homeTeam.name}</span>
                 </div>
-                <div className="pred-score-inputs">
-                  <input type="number" min="0" max="20" placeholder="0"
-                    value={pred.home ?? ''}
-                    onChange={e => handleChange(match.id, 'home', e.target.value)}
-                    className="score-input" />
-                  <span className="input-divider">:</span>
-                  <input type="number" min="0" max="20" placeholder="0"
-                    value={pred.away ?? ''}
-                    onChange={e => handleChange(match.id, 'away', e.target.value)}
-                    className="score-input" />
-                </div>
+                <span className="vs-label">VS</span>
                 <div className="pred-team away">
                   <span>{match.awayTeam.shortName || match.awayTeam.name}</span>
                   {match.awayTeam.crest && <img src={match.awayTeam.crest} alt="" className="pred-crest" />}
                 </div>
               </div>
-
-              <button
-                className={`save-btn ${isSaved ? 'saved' : ''}`}
-                onClick={() => handleSave(match.id)}
-                disabled={pred.home === undefined || pred.home === '' || pred.away === undefined || pred.away === ''}
-              >
-                {isSaved ? '✓ Saved!' : 'Save Score Guess'}
-              </button>
 
               <div className="bet-section">
                 <div className="bet-section-title">Predict Winner — stake money, win at the odds</div>
