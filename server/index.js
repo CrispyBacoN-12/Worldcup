@@ -104,17 +104,29 @@ const saveWallet = (data) => {
   fs.writeFileSync(WALLET_FILE, JSON.stringify(data, null, 2));
 };
 
-// Ensures the wallet record exists, drops expired daily grants, and grants
-// today's allowance (100 * today's match count) if it hasn't been given yet.
+// Ensures the wallet record exists, folds any expired or unstaked daily
+// money into points (money only ever becomes points — it never just
+// vanishes), and grants today's allowance (100 * today's match count) if it
+// hasn't been given yet.
 const touchWallet = (wallet, username) => {
   if (!wallet[username])
-    wallet[username] = { points: 0, predictions: [], money: 0, dailyGrants: [], lastAllowanceDate: null };
+    wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null };
   const userData = wallet[username];
-  if (userData.money == null) userData.money = 0;
   if (!userData.dailyGrants) userData.dailyGrants = [];
+  if (userData.points == null) userData.points = 0;
+
+  // One-time migration from the earlier permanent-money-pool design.
+  if (userData.money) userData.points += userData.money;
+  delete userData.money;
 
   const now = Date.now();
-  userData.dailyGrants = userData.dailyGrants.filter((g) => now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS);
+  let expiredAmount = 0;
+  userData.dailyGrants = userData.dailyGrants.filter((g) => {
+    const alive = now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS;
+    if (!alive) expiredAmount += g.remaining;
+    return alive;
+  });
+  userData.points += expiredAmount;
 
   const today = todayUtc();
   if (userData.lastAllowanceDate !== today) {
@@ -129,9 +141,10 @@ const touchWallet = (wallet, username) => {
 };
 
 const availableBalance = (userData) =>
-  userData.dailyGrants.reduce((sum, g) => sum + g.remaining, 0) + userData.money;
+  userData.dailyGrants.reduce((sum, g) => sum + g.remaining, 0);
 
-// Deducts from the soonest-expiring grants first, then permanent money.
+// Deducts from the soonest-expiring grants first. Caller must have already
+// checked stake <= availableBalance.
 const deductStake = (userData, amount) => {
   let remaining = amount;
   for (const grant of userData.dailyGrants) {
@@ -141,7 +154,6 @@ const deductStake = (userData, amount) => {
     remaining -= take;
   }
   userData.dailyGrants = userData.dailyGrants.filter((g) => g.remaining > 0);
-  userData.money -= remaining;
 };
 
 // ─── JWT Middleware ──────────────────────────────────────────
@@ -158,10 +170,10 @@ const verifyToken = (req, res, next) => {
 };
 
 // ─── Prediction Settlement ───────────────────────────────────
-// Correct outcome pays stake * matchOdds[matchId][outcome] (default 2x)
-// into permanent money. Wrong outcome forfeits the stake (already deducted
-// at placement). Legacy predictions placed before staking existed (no
-// `stake` field) are left alone.
+// Correct outcome converts stake * matchOdds[matchId][outcome] (default 2x)
+// into points — winnings are points, not stakeable money. Wrong outcome
+// forfeits the stake (already deducted at placement). Legacy predictions
+// placed before staking existed (no `stake` field) are left alone.
 const settlePredictions = async (username) => {
   const wallet = getWallet();
   const userData = touchWallet(wallet, username);
@@ -184,7 +196,7 @@ const settlePredictions = async (username) => {
       prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
       prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
-      if (correct) userData.money += prediction.payout;
+      if (correct) userData.points += prediction.payout;
       changed = true;
     } catch {
       // skip if match fetch fails
@@ -351,7 +363,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
   userData.predictions.unshift(prediction);
   saveWallet(wallet);
 
-  res.json({ money: userData.money, prediction });
+  res.json({ availableBalance: availableBalance(userData), prediction });
 });
 
 // ─── Football API Proxy ──────────────────────────────────────

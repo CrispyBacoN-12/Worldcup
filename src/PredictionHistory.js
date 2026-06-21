@@ -19,7 +19,7 @@ const StatusBadge = ({ status }) => {
 };
 
 const PredictionHistory = () => {
-  const { points, money, predictions, fetchPoints } = usePoints();
+  const { points, availableBalance, predictions, fetchPoints } = usePoints();
 
   useEffect(() => {
     fetchPoints();
@@ -37,8 +37,8 @@ const PredictionHistory = () => {
 
       <div className="wallet-summary card">
         <div className="summary-item">
-          <span className="summary-label">Money</span>
-          <span className="summary-value gold">{money !== null ? `$${money.toLocaleString()}` : '—'}</span>
+          <span className="summary-label">Balance</span>
+          <span className="summary-value gold">${availableBalance.toLocaleString()}</span>
         </div>
         <div className="summary-divider" />
         <div className="summary-item">
@@ -88,7 +88,7 @@ const PredictionHistory = () => {
                     {prediction.status === 'pending'
                       ? 'Pending'
                       : prediction.status === 'correct'
-                        ? `+$${prediction.payout}`
+                        ? `+${prediction.payout} pts`
                         : `-$${prediction.stake ?? 0}`}
                   </span>
                 </div>

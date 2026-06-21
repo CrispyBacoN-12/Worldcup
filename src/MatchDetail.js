@@ -123,7 +123,7 @@ const MatchDetail = () => {
           <div className="odds-group">
             <div className="odds-label">
               Who wins?
-              {canPredict && !existing && <span className="bet-hint">— Stake money, win it back with odds</span>}
+              {canPredict && !existing && <span className="bet-hint">— Stake money, correct picks win points at the odds</span>}
             </div>
             <div className="odds-container">
               {[
@@ -163,7 +163,7 @@ const MatchDetail = () => {
                       {existing.status === 'pending'
                         ? 'Waiting for the match to finish…'
                         : existing.status === 'correct'
-                          ? `Correct! You won $${existing.payout} 💰`
+                          ? `Correct! You won ${existing.payout} pts ⭐`
                           : 'Wrong prediction — stake lost'}
                     </span>
                   </div>
@@ -218,7 +218,7 @@ const MatchDetail = () => {
             )}
           </div>
 
-          <div className="odds-footer">Predict the winner — stake money, correct picks pay out at the match's odds</div>
+          <div className="odds-footer">Predict the winner — stake money, correct picks earn points at the match's odds</div>
         </div>
       </div>
     </div>

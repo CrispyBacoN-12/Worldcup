@@ -8,7 +8,6 @@ const BASE = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 export const PointsProvider = ({ children }) => {
   const { user } = useAuth();
   const [points, setPoints] = useState(null);
-  const [money, setMoney] = useState(null);
   const [dailyGrants, setDailyGrants] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [championPick, setChampionPick] = useState(null);
@@ -20,7 +19,6 @@ export const PointsProvider = ({ children }) => {
         headers: { Authorization: `Bearer ${user.token}` },
       });
       setPoints(res.data.points);
-      setMoney(res.data.money);
       setDailyGrants(res.data.dailyGrants ?? []);
       setPredictions(res.data.predictions);
       setChampionPick(res.data.championPick ?? null);
@@ -29,7 +27,10 @@ export const PointsProvider = ({ children }) => {
 
   useEffect(() => { fetchPoints(); }, [fetchPoints]);
 
-  const availableBalance = (dailyGrants.reduce((sum, g) => sum + g.remaining, 0)) + (money ?? 0);
+  // Only the unexpired daily allowance is stakeable money. Points are a
+  // separate, permanent currency: winnings convert into points, and any
+  // daily money left unstaked when it expires also converts into points.
+  const availableBalance = dailyGrants.reduce((sum, g) => sum + g.remaining, 0);
 
   const submitPrediction = async ({ matchId, homeTeam, awayTeam, outcome, stake }) => {
     const res = await axios.post(
@@ -37,7 +38,6 @@ export const PointsProvider = ({ children }) => {
       { matchId, homeTeam, awayTeam, outcome, stake },
       { headers: { Authorization: `Bearer ${user.token}` } }
     );
-    setMoney(res.data.money);
     setPredictions((prev) => [res.data.prediction, ...prev]);
     await fetchPoints();
     return res.data;
@@ -53,7 +53,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, money, dailyGrants, availableBalance, predictions, championPick, fetchPoints, submitPrediction, submitChampionPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, championPick, fetchPoints, submitPrediction, submitChampionPick }}>
       {children}
     </PointsContext.Provider>
   );

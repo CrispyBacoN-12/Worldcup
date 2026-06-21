@@ -12,7 +12,7 @@ const Prediction = () => {
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const { money, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance } = usePoints();
+  const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance } = usePoints();
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('wc_predictions') || '{}');
@@ -95,7 +95,7 @@ const Prediction = () => {
         <p className="page-subtitle">FIFA World Cup 2026 — Make your predictions</p>
       </div>
 
-      {money !== null && (
+      {points !== null && (
         <div className="balance-bar">
           <span className="balance-label">Available Balance</span>
           <span className="balance-amount">${availableBalance.toLocaleString()}</span>
@@ -167,7 +167,7 @@ const Prediction = () => {
                         {existing.status === 'pending'
                           ? 'Waiting for result…'
                           : existing.status === 'correct'
-                            ? `Correct! Won $${existing.payout} 💰`
+                            ? `Correct! Won ${existing.payout} pts ⭐`
                             : 'Wrong — stake lost'}
                       </span>
                     </div>
