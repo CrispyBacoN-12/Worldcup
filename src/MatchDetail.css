@@ -471,6 +471,55 @@ button.odd-box:disabled {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* SCORE PREDICTION */
+.detail-score-predict {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-score-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.detail-score-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.detail-score-input {
+  width: 56px;
+  padding: 0.4rem;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.9rem;
+}
+
+.detail-score-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detail-score-sep {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.detail-score-warning {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: #ff6b7a;
+}
+
 /* EXISTING BET */
 .detail-existing-bet {
   display: flex;

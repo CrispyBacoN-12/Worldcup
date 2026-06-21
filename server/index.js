@@ -101,7 +101,8 @@ const verifyToken = (req, res, next) => {
 };
 
 // ─── Prediction Settlement ───────────────────────────────────
-// Correct 1x2 prediction = +1 point, wrong = 0. No staking.
+// Correct 1x2 prediction = +1 point. Exact score on top of a correct
+// outcome = +3 bonus (4 total). Wrong outcome = 0. No staking.
 const settlePredictions = async (username) => {
   const wallet = getWallet();
   const userData = ensurePoints(wallet, username);
@@ -120,9 +121,14 @@ const settlePredictions = async (username) => {
         (prediction.outcome === 'away' && winner === 'AWAY_TEAM') ||
         (prediction.outcome === 'draw' && winner === 'DRAW');
 
-      prediction.status = correct ? 'correct' : 'wrong';
+      const exactScore = correct && prediction.predictedScore &&
+        prediction.predictedScore.home === match.score.fullTime.home &&
+        prediction.predictedScore.away === match.score.fullTime.away;
+
+      prediction.status = exactScore ? 'exact' : correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
-      if (correct) userData.points += 1;
+      if (exactScore) userData.points += 4;
+      else if (correct) userData.points += 1;
       changed = true;
     } catch {
       // skip if match fetch fails
@@ -131,6 +137,13 @@ const settlePredictions = async (username) => {
 
   if (changed) saveWallet(wallet);
 };
+
+// A predicted score must agree with the chosen outcome (home wins, away
+// wins, or a draw) — there is no other valid combination.
+const scoreMatchesOutcome = (outcome, home, away) =>
+  (outcome === 'home' && home > away) ||
+  (outcome === 'away' && away > home) ||
+  (outcome === 'draw' && home === away);
 
 // ─── Auth Routes ─────────────────────────────────────────────
 app.post('/api/auth/register', async (req, res) => {
@@ -185,9 +198,20 @@ app.get('/api/points', verifyToken, async (req, res) => {
 const BETTABLE = ['SCHEDULED', 'TIMED'];
 
 app.post('/api/predictions', verifyToken, async (req, res) => {
-  const { matchId, homeTeam, awayTeam, outcome } = req.body;
+  const { matchId, homeTeam, awayTeam, outcome, predictedScore } = req.body;
   if (!matchId || !['home', 'draw', 'away'].includes(outcome))
     return res.status(400).json({ error: 'Missing or invalid fields' });
+
+  let validatedScore = null;
+  if (predictedScore != null) {
+    const { home, away } = predictedScore;
+    const isNonNegativeInt = (n) => Number.isInteger(n) && n >= 0;
+    if (!isNonNegativeInt(home) || !isNonNegativeInt(away))
+      return res.status(400).json({ error: 'predictedScore must contain non-negative integers' });
+    if (!scoreMatchesOutcome(outcome, home, away))
+      return res.status(400).json({ error: 'predictedScore does not match the selected outcome' });
+    validatedScore = { home, away };
+  }
 
   const wallet = getWallet();
   const userData = ensurePoints(wallet, req.user.username);
@@ -209,6 +233,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     homeTeam,
     awayTeam,
     outcome,
+    predictedScore: validatedScore,
     status: 'pending',
     placedAt: new Date().toISOString(),
     settledAt: null,
