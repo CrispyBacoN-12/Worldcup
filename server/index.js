@@ -30,7 +30,7 @@ const matchOdds = JSON.parse(fs.readFileSync(MATCH_ODDS_FILE, 'utf8'));
 const DEFAULT_ODDS_MULTIPLIER = 2;
 const getOddsMultiplier = (matchId, outcome) => matchOdds[matchId]?.[outcome] ?? DEFAULT_ODDS_MULTIPLIER;
 
-const FIXTURES_FILE = nodePath.join(__dirname, '..', 'src', 'data', 'fixtures.json');
+const FIXTURES_FILE = nodePath.join(__dirname, 'data', 'fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
 const DAILY_ALLOWANCE_PER_MATCH = 100;
 const GRANT_EXPIRY_MS = 24 * 60 * 60 * 1000;
