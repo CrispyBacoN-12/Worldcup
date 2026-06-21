@@ -11,6 +11,7 @@ import MatchDetail from './MatchDetail';
 import MatchHistory from './MatchHistory';
 import PredictionHistory from './PredictionHistory';
 import ChampionPick from './ChampionPick';
+import AwardPick from './AwardPick';
 import Login from './Login';
 import './App.css';
 
@@ -36,6 +37,7 @@ const AppRoutes = () => {
           <Route path="/history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
           <Route path="/predictions" element={<ProtectedRoute><PredictionHistory /></ProtectedRoute>} />
           <Route path="/champion" element={<ProtectedRoute><ChampionPick /></ProtectedRoute>} />
+          <Route path="/awards" element={<ProtectedRoute><AwardPick /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

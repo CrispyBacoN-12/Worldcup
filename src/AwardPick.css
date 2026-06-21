@@ -1,0 +1,97 @@
+@import url('./ChampionPick.css');
+
+.award-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.award-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.award-tab {
+  flex: 1;
+  padding: 0.6rem 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.award-tab:hover {
+  border-color: var(--accent-gold);
+}
+
+.award-tab.active {
+  border-color: var(--accent-gold);
+  background: rgba(201,168,76,0.12);
+  color: var(--accent-gold-light);
+}
+
+.award-current-team-name {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.award-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.award-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.85rem 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.18s;
+  font-family: inherit;
+}
+
+.award-card:hover {
+  border-color: var(--accent-gold);
+  background: rgba(201,168,76,0.06);
+  transform: translateY(-1px);
+}
+
+.award-card.selected {
+  border-color: var(--accent-gold);
+  background: rgba(201,168,76,0.12);
+  box-shadow: 0 0 0 2px rgba(201,168,76,0.2);
+}
+
+.award-card .mini-crest {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.award-player-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.award-player-team {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.award-player-goals {
+  font-size: 0.7rem;
+  color: var(--accent-gold);
+}

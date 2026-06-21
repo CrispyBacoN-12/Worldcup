@@ -44,6 +44,14 @@ const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
 const FINAL_MATCH_ID = 537390;
 const CHAMPION_BASE_POINTS = 10;
 
+// Top Scorer / Golden Ball picks lock alongside the Champion pick.
+const AWARD_LOCK_AT = CHAMPION_LOCK_AT;
+const AWARDS_FILE = nodePath.join(__dirname, 'data', 'awards.json');
+const AWARD_TYPES = ['topScorer', 'goldenBall'];
+// Neither award's actual winner is exposed by the football-data API, so the
+// result is filled in here by hand once each award is officially announced.
+const getAwards = () => JSON.parse(fs.readFileSync(AWARDS_FILE, 'utf8'));
+
 // ─── Football API request cache + throttle ──────────────────
 const apiCache = new Map(); // url -> { data, expiresAt }
 const requestQueue = [];
@@ -238,6 +246,32 @@ const settleChampionPick = async (username) => {
   }
 };
 
+// ─── Award Pick Settlement ────────────────────────────────────
+// The actual Top Scorer / Golden Ball winners are entered by hand in
+// server/data/awards.json once FIFA announces them (see getAwards above).
+const settleAwardPicks = (username) => {
+  const wallet = getWallet();
+  const userData = touchWallet(wallet, username);
+  if (!userData.awardPicks) return;
+
+  const awards = getAwards();
+  let changed = false;
+  for (const type of AWARD_TYPES) {
+    const pick = userData.awardPicks[type];
+    const actual = awards[type];
+    if (!pick || pick.status !== 'pending' || !actual || actual.actualPlayerId == null) continue;
+
+    const correct = pick.playerId === actual.actualPlayerId;
+    pick.status = correct ? 'correct' : 'wrong';
+    pick.pointsAwarded = correct ? actual.basePoints : 0;
+    pick.settledAt = new Date().toISOString();
+    if (correct) userData.points += pick.pointsAwarded;
+    changed = true;
+  }
+
+  if (changed) saveWallet(wallet);
+};
+
 // ─── Auth Routes ─────────────────────────────────────────────
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
@@ -283,6 +317,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/points', verifyToken, async (req, res) => {
   await settlePredictions(req.user.username);
   await settleChampionPick(req.user.username);
+  settleAwardPicks(req.user.username);
   const wallet = getWallet();
   const userData = touchWallet(wallet, req.user.username);
   saveWallet(wallet);
@@ -296,6 +331,10 @@ app.get('/api/champion/teams', (req, res) => {
 
 app.get('/api/odds', (req, res) => {
   res.json({ odds: matchOdds, defaultMultiplier: DEFAULT_ODDS_MULTIPLIER });
+});
+
+app.get('/api/awards/meta', (req, res) => {
+  res.json({ lockAt: new Date(AWARD_LOCK_AT).toISOString() });
 });
 
 app.post('/api/champion-pick', verifyToken, (req, res) => {
@@ -322,6 +361,34 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
   saveWallet(wallet);
 
   res.json({ points: userData.points, championPick: userData.championPick });
+});
+
+// ─── Award Pick Routes (Top Scorer / Golden Ball) ─────────────
+app.post('/api/award-pick', verifyToken, (req, res) => {
+  const { type, playerId, playerName, teamName } = req.body;
+  if (!AWARD_TYPES.includes(type))
+    return res.status(400).json({ error: 'Unknown award type' });
+  if (!playerId || !playerName)
+    return res.status(400).json({ error: 'Missing player' });
+  if (Date.now() >= AWARD_LOCK_AT)
+    return res.status(400).json({ error: 'Award picks are locked' });
+
+  const wallet = getWallet();
+  const userData = touchWallet(wallet, req.user.username);
+  if (!userData.awardPicks) userData.awardPicks = {};
+
+  userData.awardPicks[type] = {
+    playerId,
+    playerName,
+    teamName: teamName || null,
+    placedAt: new Date().toISOString(),
+    status: 'pending',
+    pointsAwarded: null,
+    settledAt: null,
+  };
+  saveWallet(wallet);
+
+  res.json({ points: userData.points, awardPicks: userData.awardPicks });
 });
 
 const BETTABLE = ['SCHEDULED', 'TIMED'];

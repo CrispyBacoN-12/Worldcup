@@ -11,6 +11,7 @@ export const PointsProvider = ({ children }) => {
   const [dailyGrants, setDailyGrants] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [championPick, setChampionPick] = useState(null);
+  const [awardPicks, setAwardPicks] = useState({});
   const [odds, setOdds] = useState({});
   const [defaultMultiplier, setDefaultMultiplier] = useState(2);
 
@@ -38,6 +39,7 @@ export const PointsProvider = ({ children }) => {
       setDailyGrants(res.data.dailyGrants ?? []);
       setPredictions(res.data.predictions);
       setChampionPick(res.data.championPick ?? null);
+      setAwardPicks(res.data.awardPicks ?? {});
     } catch {}
   }, [user]);
 
@@ -68,8 +70,17 @@ export const PointsProvider = ({ children }) => {
     return res.data;
   };
 
+  const submitAwardPick = async (type, { playerId, playerName, teamName }) => {
+    const res = await axios.post(`${BASE}/api/award-pick`, { type, playerId, playerName, teamName }, {
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+    setPoints(res.data.points);
+    setAwardPicks(res.data.awardPicks);
+    return res.data;
+  };
+
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, championPick, getMultiplier, fetchPoints, submitPrediction, submitChampionPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, championPick, awardPicks, getMultiplier, fetchPoints, submitPrediction, submitChampionPick, submitAwardPick }}>
       {children}
     </PointsContext.Provider>
   );
