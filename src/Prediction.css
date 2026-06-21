@@ -27,6 +27,11 @@
   color: var(--accent-gold);
 }
 
+.balance-expiry {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 /* PREDICTION LIST */
 .prediction-list {
   display: flex;

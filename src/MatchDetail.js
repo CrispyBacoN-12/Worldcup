@@ -18,12 +18,11 @@ const MatchDetail = () => {
 
   // 1x2 prediction state
   const [sel, setSel] = useState(null);        // 'home' | 'draw' | 'away'
-  const [homeScore, setHomeScore] = useState('');
-  const [awayScore, setAwayScore] = useState('');
+  const [stake, setStake] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const { predictions, submitPrediction } = usePoints();
+  const { predictions, submitPrediction, availableBalance } = usePoints();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -41,19 +40,11 @@ const MatchDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchId]);
 
-  const scoreMatchesOutcome = (outcome, home, away) =>
-    (outcome === 'home' && home > away) ||
-    (outcome === 'away' && away > home) ||
-    (outcome === 'draw' && home === away);
-
-  const hasScoreInput = homeScore !== '' || awayScore !== '';
-  const hasCompleteScore = homeScore !== '' && awayScore !== '';
-  const scoreIsInvalid = hasScoreInput && !hasCompleteScore;
-  const scoreIsInconsistent = hasCompleteScore && sel &&
-    !scoreMatchesOutcome(sel, Number(homeScore), Number(awayScore));
+  const stakeValue = Number(stake);
+  const stakeIsValid = stake !== '' && Number.isInteger(stakeValue) && stakeValue > 0 && stakeValue <= availableBalance;
 
   const handleSubmit = async () => {
-    if (!sel || scoreIsInvalid || scoreIsInconsistent) return;
+    if (!sel || !stakeIsValid) return;
     setSubmitting(true);
     setSubmitError('');
     try {
@@ -62,11 +53,10 @@ const MatchDetail = () => {
         homeTeam: match.homeTeam.shortName || match.homeTeam.name,
         awayTeam: match.awayTeam.shortName || match.awayTeam.name,
         outcome: sel,
-        predictedScore: hasCompleteScore ? { home: Number(homeScore), away: Number(awayScore) } : null,
+        stake: stakeValue,
       });
       setSel(null);
-      setHomeScore('');
-      setAwayScore('');
+      setStake('');
     } catch (err) {
       setSubmitError(err.response?.data?.error || 'Failed to submit prediction');
     } finally {
@@ -133,7 +123,7 @@ const MatchDetail = () => {
           <div className="odds-group">
             <div className="odds-label">
               Who wins?
-              {canPredict && !existing && <span className="bet-hint">— Correct = +1 point</span>}
+              {canPredict && !existing && <span className="bet-hint">— Stake money, win it back with odds</span>}
             </div>
             <div className="odds-container">
               {[
@@ -163,21 +153,18 @@ const MatchDetail = () => {
               <div className="bet-form-section">
                 <div className="detail-existing-bet">
                   <span className="detail-bet-icon">
-                    {existing.status === 'exact' ? '🎯' : existing.status === 'correct' ? '✅' : existing.status === 'wrong' ? '❌' : '🕒'}
+                    {existing.status === 'correct' ? '✅' : existing.status === 'wrong' ? '❌' : '🕒'}
                   </span>
                   <div className="detail-bet-info">
                     <span className="detail-bet-pick">
-                      Your pick: {outcomeLabel(existing.outcome)}
-                      {existing.predictedScore && ` (${existing.predictedScore.home}-${existing.predictedScore.away})`}
+                      Your pick: {outcomeLabel(existing.outcome)} — Staked ${existing.stake}
                     </span>
                     <span className="detail-bet-meta">
                       {existing.status === 'pending'
                         ? 'Waiting for the match to finish…'
-                        : existing.status === 'exact'
-                          ? 'สกอร์ถูกเป๊ะ! ได้ +4 แต้ม 🎯⭐'
-                          : existing.status === 'correct'
-                            ? 'Correct! You earned +1 point ⭐'
-                            : 'Wrong prediction — 0 points'}
+                        : existing.status === 'correct'
+                          ? `Correct! You won $${existing.payout} 💰`
+                          : 'Wrong prediction — stake lost'}
                     </span>
                   </div>
                 </div>
@@ -189,30 +176,21 @@ const MatchDetail = () => {
             ) : (
               <div className="bet-form-section">
                 <div className="detail-score-predict">
-                  <span className="detail-score-label">ทายสกอร์ที่แน่นอน (ไม่บังคับ) — ถูกเป๊ะ +3 แต้มพิเศษ</span>
+                  <span className="detail-score-label">ใส่จำนวนเงินที่ต้องการเดิมพัน (คงเหลือ ${availableBalance})</span>
                   <div className="detail-score-inputs">
                     <input
                       type="number"
-                      min="0"
+                      min="1"
                       className="detail-score-input"
-                      value={homeScore}
-                      onChange={(e) => setHomeScore(e.target.value)}
-                      disabled={!sel}
-                      placeholder="0"
-                    />
-                    <span className="detail-score-sep">-</span>
-                    <input
-                      type="number"
-                      min="0"
-                      className="detail-score-input"
-                      value={awayScore}
-                      onChange={(e) => setAwayScore(e.target.value)}
+                      value={stake}
+                      onChange={(e) => setStake(e.target.value)}
                       disabled={!sel}
                       placeholder="0"
                     />
                   </div>
-                  {scoreIsInconsistent && <span className="detail-score-warning">สกอร์ไม่ตรงกับผลที่เลือก</span>}
-                  {scoreIsInvalid && <span className="detail-score-warning">กรอกสกอร์ทั้งสองช่อง หรือเว้นว่างทั้งคู่</span>}
+                  {stake !== '' && !stakeIsValid && (
+                    <span className="detail-score-warning">ใส่จำนวนเงินที่ถูกต้องและไม่เกินยอดคงเหลือ</span>
+                  )}
                 </div>
 
                 {sel ? (
@@ -226,21 +204,21 @@ const MatchDetail = () => {
                       <button
                         className="detail-bet-submit"
                         onClick={handleSubmit}
-                        disabled={submitting || scoreIsInvalid || scoreIsInconsistent}
+                        disabled={submitting || !stakeIsValid}
                       >
                         {submitting ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="detail-bet-prompt">Pick a result above — correct gets you +1 point</div>
+                  <div className="detail-bet-prompt">Pick a result above, then stake money on it</div>
                 )}
                 {submitError && <div className="detail-bet-error">{submitError}</div>}
               </div>
             )}
           </div>
 
-          <div className="odds-footer">Predict the winner — correct = 1 point, exact score = +3 bonus (4 total)</div>
+          <div className="odds-footer">Predict the winner — stake money, correct picks pay out at the match's odds</div>
         </div>
       </div>
     </div>

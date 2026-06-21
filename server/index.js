@@ -25,6 +25,19 @@ const CHAMPION_TEAMS_FILE = nodePath.join(__dirname, 'data', 'championTeams.json
 const championTeams = JSON.parse(fs.readFileSync(CHAMPION_TEAMS_FILE, 'utf8'));
 const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
 
+const MATCH_ODDS_FILE = nodePath.join(__dirname, 'data', 'matchOdds.json');
+const matchOdds = JSON.parse(fs.readFileSync(MATCH_ODDS_FILE, 'utf8'));
+const DEFAULT_ODDS_MULTIPLIER = 2;
+const getOddsMultiplier = (matchId, outcome) => matchOdds[matchId]?.[outcome] ?? DEFAULT_ODDS_MULTIPLIER;
+
+const FIXTURES_FILE = nodePath.join(__dirname, '..', 'src', 'data', 'fixtures.json');
+const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
+const DAILY_ALLOWANCE_PER_MATCH = 100;
+const GRANT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const todayUtc = () => new Date().toISOString().slice(0, 10);
+const matchCountOn = (dateStr) =>
+  fixtures.filter((m) => m.utcDate.slice(0, 10) === dateStr).length;
+
 // Kickoff of the first LAST_32-stage match in src/data/fixtures.json — picks lock here.
 const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
 // The FINAL-stage match id from src/data/fixtures.json (teams resolve once the bracket completes).
@@ -91,9 +104,44 @@ const saveWallet = (data) => {
   fs.writeFileSync(WALLET_FILE, JSON.stringify(data, null, 2));
 };
 
-const ensurePoints = (wallet, username) => {
-  if (!wallet[username]) wallet[username] = { points: 0, predictions: [] };
-  return wallet[username];
+// Ensures the wallet record exists, drops expired daily grants, and grants
+// today's allowance (100 * today's match count) if it hasn't been given yet.
+const touchWallet = (wallet, username) => {
+  if (!wallet[username])
+    wallet[username] = { points: 0, predictions: [], money: 0, dailyGrants: [], lastAllowanceDate: null };
+  const userData = wallet[username];
+  if (userData.money == null) userData.money = 0;
+  if (!userData.dailyGrants) userData.dailyGrants = [];
+
+  const now = Date.now();
+  userData.dailyGrants = userData.dailyGrants.filter((g) => now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS);
+
+  const today = todayUtc();
+  if (userData.lastAllowanceDate !== today) {
+    const amount = DAILY_ALLOWANCE_PER_MATCH * matchCountOn(today);
+    if (amount > 0) {
+      userData.dailyGrants.push({ amount, grantedAt: new Date().toISOString(), remaining: amount });
+    }
+    userData.lastAllowanceDate = today;
+  }
+
+  return userData;
+};
+
+const availableBalance = (userData) =>
+  userData.dailyGrants.reduce((sum, g) => sum + g.remaining, 0) + userData.money;
+
+// Deducts from the soonest-expiring grants first, then permanent money.
+const deductStake = (userData, amount) => {
+  let remaining = amount;
+  for (const grant of userData.dailyGrants) {
+    if (remaining <= 0) break;
+    const take = Math.min(grant.remaining, remaining);
+    grant.remaining -= take;
+    remaining -= take;
+  }
+  userData.dailyGrants = userData.dailyGrants.filter((g) => g.remaining > 0);
+  userData.money -= remaining;
 };
 
 // ─── JWT Middleware ──────────────────────────────────────────
@@ -110,12 +158,14 @@ const verifyToken = (req, res, next) => {
 };
 
 // ─── Prediction Settlement ───────────────────────────────────
-// Correct 1x2 prediction = +1 point. Exact score on top of a correct
-// outcome = +3 bonus (4 total). Wrong outcome = 0. No staking.
+// Correct outcome pays stake * matchOdds[matchId][outcome] (default 2x)
+// into permanent money. Wrong outcome forfeits the stake (already deducted
+// at placement). Legacy predictions placed before staking existed (no
+// `stake` field) are left alone.
 const settlePredictions = async (username) => {
   const wallet = getWallet();
-  const userData = ensurePoints(wallet, username);
-  const pending = userData.predictions.filter((p) => p.status === 'pending');
+  const userData = touchWallet(wallet, username);
+  const pending = userData.predictions.filter((p) => p.status === 'pending' && p.stake != null);
   if (pending.length === 0) return;
 
   let changed = false;
@@ -130,14 +180,11 @@ const settlePredictions = async (username) => {
         (prediction.outcome === 'away' && winner === 'AWAY_TEAM') ||
         (prediction.outcome === 'draw' && winner === 'DRAW');
 
-      const exactScore = correct && prediction.predictedScore &&
-        prediction.predictedScore.home === match.score.fullTime.home &&
-        prediction.predictedScore.away === match.score.fullTime.away;
-
-      prediction.status = exactScore ? 'exact' : correct ? 'correct' : 'wrong';
+      const multiplier = getOddsMultiplier(prediction.matchId, prediction.outcome);
+      prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
+      prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
-      if (exactScore) userData.points += 4;
-      else if (correct) userData.points += 1;
+      if (correct) userData.money += prediction.payout;
       changed = true;
     } catch {
       // skip if match fetch fails
@@ -150,7 +197,7 @@ const settlePredictions = async (username) => {
 // ─── Champion Pick Settlement ─────────────────────────────────
 const settleChampionPick = async (username) => {
   const wallet = getWallet();
-  const userData = ensurePoints(wallet, username);
+  const userData = touchWallet(wallet, username);
   const pick = userData.championPick;
   if (!pick || pick.status !== 'pending') return;
 
@@ -179,13 +226,6 @@ const settleChampionPick = async (username) => {
   }
 };
 
-// A predicted score must agree with the chosen outcome (home wins, away
-// wins, or a draw) — there is no other valid combination.
-const scoreMatchesOutcome = (outcome, home, away) =>
-  (outcome === 'home' && home > away) ||
-  (outcome === 'away' && away > home) ||
-  (outcome === 'draw' && home === away);
-
 // ─── Auth Routes ─────────────────────────────────────────────
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
@@ -206,7 +246,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   // Initialize wallet for new user
   const wallet = getWallet();
-  ensurePoints(wallet, username);
+  touchWallet(wallet, username);
   saveWallet(wallet);
 
   const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
@@ -232,7 +272,7 @@ app.get('/api/points', verifyToken, async (req, res) => {
   await settlePredictions(req.user.username);
   await settleChampionPick(req.user.username);
   const wallet = getWallet();
-  const userData = ensurePoints(wallet, req.user.username);
+  const userData = touchWallet(wallet, req.user.username);
   saveWallet(wallet);
   res.json(userData);
 });
@@ -251,7 +291,7 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
     return res.status(400).json({ error: 'Champion picks are locked' });
 
   const wallet = getWallet();
-  const userData = ensurePoints(wallet, req.user.username);
+  const userData = touchWallet(wallet, req.user.username);
 
   userData.championPick = {
     teamId: team.id,
@@ -271,26 +311,20 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
 const BETTABLE = ['SCHEDULED', 'TIMED'];
 
 app.post('/api/predictions', verifyToken, async (req, res) => {
-  const { matchId, homeTeam, awayTeam, outcome, predictedScore } = req.body;
+  const { matchId, homeTeam, awayTeam, outcome, stake } = req.body;
   if (!matchId || !['home', 'draw', 'away'].includes(outcome))
     return res.status(400).json({ error: 'Missing or invalid fields' });
-
-  let validatedScore = null;
-  if (predictedScore != null) {
-    const { home, away } = predictedScore;
-    const isNonNegativeInt = (n) => Number.isInteger(n) && n >= 0;
-    if (!isNonNegativeInt(home) || !isNonNegativeInt(away))
-      return res.status(400).json({ error: 'predictedScore must contain non-negative integers' });
-    if (!scoreMatchesOutcome(outcome, home, away))
-      return res.status(400).json({ error: 'predictedScore does not match the selected outcome' });
-    validatedScore = { home, away };
-  }
+  if (!Number.isInteger(stake) || stake <= 0)
+    return res.status(400).json({ error: 'stake must be a positive integer' });
 
   const wallet = getWallet();
-  const userData = ensurePoints(wallet, req.user.username);
+  const userData = touchWallet(wallet, req.user.username);
 
   if (userData.predictions.find((p) => p.matchId === matchId))
     return res.status(400).json({ error: 'You already predicted this match' });
+
+  if (stake > availableBalance(userData))
+    return res.status(400).json({ error: 'stake exceeds available balance' });
 
   try {
     const match = await fetchFootballData(`matches/${matchId}`);
@@ -300,21 +334,24 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     return res.status(502).json({ error: 'Could not verify match status' });
   }
 
+  deductStake(userData, stake);
+
   const prediction = {
     id: Date.now().toString(),
     matchId,
     homeTeam,
     awayTeam,
     outcome,
-    predictedScore: validatedScore,
+    stake,
     status: 'pending',
+    payout: null,
     placedAt: new Date().toISOString(),
     settledAt: null,
   };
   userData.predictions.unshift(prediction);
   saveWallet(wallet);
 
-  res.json({ points: userData.points, prediction });
+  res.json({ money: userData.money, prediction });
 });
 
 // ─── Football API Proxy ──────────────────────────────────────

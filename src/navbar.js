@@ -7,7 +7,7 @@ import './Navbar.css';
 const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const { user, logout } = useAuth();
-  const { points } = usePoints();
+  const { points, money } = usePoints();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -38,6 +38,11 @@ const Navbar = () => {
         </ul>
 
         <div className="navbar-user">
+          {money !== null && (
+            <span className="navbar-balance">
+              💰 ${money.toLocaleString()}
+            </span>
+          )}
           {points !== null && (
             <span className="navbar-balance">
               ⭐ {points.toLocaleString()} pts

@@ -8,10 +8,11 @@ const Prediction = () => {
   const [saved, setSaved] = useState({});
 
   const [picks, setPicks] = useState({});          // { [matchId]: 'home'|'draw'|'away' }
+  const [stakes, setStakes] = useState({});        // { [matchId]: string }
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const { points, predictions: serverPredictions, submitPrediction } = usePoints();
+  const { money, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance } = usePoints();
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('wc_predictions') || '{}');
@@ -40,9 +41,19 @@ const Prediction = () => {
     setPickErrors(prev => ({ ...prev, [matchId]: '' }));
   };
 
+  const setStake = (matchId, value) => {
+    setStakes(prev => ({ ...prev, [matchId]: value }));
+  };
+
+  const stakeIsValid = (matchId) => {
+    const value = Number(stakes[matchId]);
+    return stakes[matchId] !== undefined && stakes[matchId] !== '' &&
+      Number.isInteger(value) && value > 0 && value <= availableBalance;
+  };
+
   const handleSubmitPick = async (match) => {
     const outcome = picks[match.id];
-    if (!outcome) return;
+    if (!outcome || !stakeIsValid(match.id)) return;
 
     setPickLoading(prev => ({ ...prev, [match.id]: true }));
     setPickErrors(prev => ({ ...prev, [match.id]: '' }));
@@ -52,8 +63,10 @@ const Prediction = () => {
         homeTeam: match.homeTeam.shortName || match.homeTeam.name,
         awayTeam: match.awayTeam.shortName || match.awayTeam.name,
         outcome,
+        stake: Number(stakes[match.id]),
       });
       setPicks(prev => ({ ...prev, [match.id]: null }));
+      setStakes(prev => ({ ...prev, [match.id]: '' }));
     } catch (err) {
       setPickErrors(prev => ({
         ...prev,
@@ -82,10 +95,15 @@ const Prediction = () => {
         <p className="page-subtitle">FIFA World Cup 2026 — Make your predictions</p>
       </div>
 
-      {points !== null && (
+      {money !== null && (
         <div className="balance-bar">
-          <span className="balance-label">Your Points</span>
-          <span className="balance-amount">{points.toLocaleString()}</span>
+          <span className="balance-label">Available Balance</span>
+          <span className="balance-amount">${availableBalance.toLocaleString()}</span>
+          {dailyGrants.length > 0 && (
+            <span className="balance-expiry">
+              ${dailyGrants[0].remaining} expires in {Math.max(0, Math.ceil(24 - (Date.now() - new Date(dailyGrants[0].grantedAt).getTime()) / 3600000))}h
+            </span>
+          )}
         </div>
       )}
 
@@ -131,7 +149,7 @@ const Prediction = () => {
               </button>
 
               <div className="bet-section">
-                <div className="bet-section-title">Predict Winner (+1 point if correct)</div>
+                <div className="bet-section-title">Predict Winner — stake money, win at the odds</div>
 
                 {existing ? (
                   <div className="existing-bet">
@@ -143,13 +161,14 @@ const Prediction = () => {
                           : existing.outcome === 'away'
                           ? match.awayTeam.shortName || match.awayTeam.name
                           : 'Draw'}
+                        {' — Staked $' + existing.stake}
                       </span>
                       <span className="existing-detail">
                         {existing.status === 'pending'
                           ? 'Waiting for result…'
                           : existing.status === 'correct'
-                            ? 'Correct! +1 point ⭐'
-                            : 'Wrong — 0 points'}
+                            ? `Correct! Won $${existing.payout} 💰`
+                            : 'Wrong — stake lost'}
                       </span>
                     </div>
                   </div>
@@ -173,10 +192,18 @@ const Prediction = () => {
 
                     {pick && (
                       <div className="bet-controls">
+                        <input
+                          type="number"
+                          min="1"
+                          className="score-input"
+                          placeholder="Stake $"
+                          value={stakes[match.id] ?? ''}
+                          onChange={(e) => setStake(match.id, e.target.value)}
+                        />
                         <button
                           className="bet-submit-btn"
                           onClick={() => handleSubmitPick(match)}
-                          disabled={pickLoading[match.id]}
+                          disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
                         >
                           {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
                         </button>

@@ -19,7 +19,7 @@ const StatusBadge = ({ status }) => {
 };
 
 const PredictionHistory = () => {
-  const { points, predictions, fetchPoints } = usePoints();
+  const { points, money, predictions, fetchPoints } = usePoints();
 
   useEffect(() => {
     fetchPoints();
@@ -36,6 +36,11 @@ const PredictionHistory = () => {
       </div>
 
       <div className="wallet-summary card">
+        <div className="summary-item">
+          <span className="summary-label">Money</span>
+          <span className="summary-value gold">{money !== null ? `$${money.toLocaleString()}` : '—'}</span>
+        </div>
+        <div className="summary-divider" />
         <div className="summary-item">
           <span className="summary-label">Points</span>
           <span className="summary-value gold">{points !== null ? points.toLocaleString() : '—'}</span>
@@ -74,9 +79,17 @@ const PredictionHistory = () => {
                   <span className="bet-detail-value pick">{pickLabel(prediction)}</span>
                 </div>
                 <div className="bet-detail-row">
+                  <span className="bet-detail-label">Stake</span>
+                  <span className="bet-detail-value">${prediction.stake ?? '—'}</span>
+                </div>
+                <div className="bet-detail-row">
                   <span className="bet-detail-label">Result</span>
                   <span className={`bet-detail-value ${prediction.status === 'correct' ? 'green' : prediction.status === 'wrong' ? 'red' : 'gold'}`}>
-                    {prediction.status === 'pending' ? 'Pending' : prediction.status === 'correct' ? '+1 point' : '0 points'}
+                    {prediction.status === 'pending'
+                      ? 'Pending'
+                      : prediction.status === 'correct'
+                        ? `+$${prediction.payout}`
+                        : `-$${prediction.stake ?? 0}`}
                   </span>
                 </div>
               </div>
