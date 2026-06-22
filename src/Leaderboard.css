@@ -1,0 +1,43 @@
+.leaderboard-page {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.85rem 1.25rem;
+}
+
+.leaderboard-row.me {
+  border-color: var(--border-gold);
+  background: rgba(201,168,76,0.08);
+}
+
+.leaderboard-rank {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 1.3rem;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: center;
+}
+
+.leaderboard-username {
+  flex: 1;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.leaderboard-points {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 1.2rem;
+  color: var(--accent-gold);
+}

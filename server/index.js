@@ -44,12 +44,12 @@ const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
 const FINAL_MATCH_ID = 537390;
 const CHAMPION_BASE_POINTS = 10;
 
-// Top Scorer / Golden Ball picks lock alongside the Champion pick.
+// Top Scorer picks lock alongside the Champion pick.
 const AWARD_LOCK_AT = CHAMPION_LOCK_AT;
 const AWARDS_FILE = nodePath.join(__dirname, 'data', 'awards.json');
-const AWARD_TYPES = ['topScorer', 'goldenBall'];
-// Neither award's actual winner is exposed by the football-data API, so the
-// result is filled in here by hand once each award is officially announced.
+const AWARD_TYPES = ['topScorer'];
+// The actual Top Scorer isn't exposed by the football-data API, so the
+// result is filled in here by hand once it's officially announced.
 const getAwards = () => JSON.parse(fs.readFileSync(AWARDS_FILE, 'utf8'));
 
 // ─── Football API request cache + throttle ──────────────────
@@ -247,8 +247,8 @@ const settleChampionPick = async (username) => {
 };
 
 // ─── Award Pick Settlement ────────────────────────────────────
-// The actual Top Scorer / Golden Ball winners are entered by hand in
-// server/data/awards.json once FIFA announces them (see getAwards above).
+// The actual Top Scorer winner is entered by hand in
+// server/data/awards.json once FIFA announces it (see getAwards above).
 const settleAwardPicks = (username) => {
   const wallet = getWallet();
   const userData = touchWallet(wallet, username);
@@ -324,6 +324,16 @@ app.get('/api/points', verifyToken, async (req, res) => {
   res.json(userData);
 });
 
+// ─── Leaderboard Route ────────────────────────────────────────
+app.get('/api/leaderboard', verifyToken, (req, res) => {
+  const wallet = getWallet();
+  const leaderboard = Object.entries(wallet)
+    .map(([username, data]) => ({ username, points: data.points || 0 }))
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 50);
+  res.json({ leaderboard });
+});
+
 // ─── Champion Pick Routes ─────────────────────────────────────
 app.get('/api/champion/teams', (req, res) => {
   res.json({ lockAt: new Date(CHAMPION_LOCK_AT).toISOString(), teams: championTeams });
@@ -363,7 +373,7 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
   res.json({ points: userData.points, championPick: userData.championPick });
 });
 
-// ─── Award Pick Routes (Top Scorer / Golden Ball) ─────────────
+// ─── Award Pick Routes (Top Scorer) ───────────────────────────
 app.post('/api/award-pick', verifyToken, (req, res) => {
   const { type, playerId, playerName, teamName } = req.body;
   if (!AWARD_TYPES.includes(type))

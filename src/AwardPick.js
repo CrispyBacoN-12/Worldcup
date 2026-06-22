@@ -4,14 +4,9 @@ import { usePoints } from './PointsContext';
 import './AwardPick.css';
 
 const BASE_URL = `${process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'}/api`;
-
-const TABS = [
-  { type: 'topScorer', label: 'ดาวซัลโว (Top Scorer)' },
-  { type: 'goldenBall', label: 'นักเตะยอดเยี่ยม (Golden Ball)' },
-];
+const AWARD_TYPE = 'topScorer';
 
 const AwardPick = () => {
-  const [tab, setTab] = useState('topScorer');
   const [candidates, setCandidates] = useState([]);
   const [lockAt, setLockAt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,23 +41,15 @@ const AwardPick = () => {
   if (error) return <div className="error-box">{error}</div>;
 
   const locked = lockAt && Date.now() >= lockAt.getTime();
-  const currentPick = awardPicks?.[tab];
+  const currentPick = awardPicks?.[AWARD_TYPE];
   const showGrid = !locked && (!currentPick || editing);
-
-  const switchTab = (next) => {
-    setTab(next);
-    setSelected(null);
-    setEditing(false);
-    setSubmitError('');
-    setFilter('');
-  };
 
   const handleConfirm = async () => {
     if (!selected) return;
     setSubmitting(true);
     setSubmitError('');
     try {
-      await submitAwardPick(tab, {
+      await submitAwardPick(AWARD_TYPE, {
         playerId: selected.player.id,
         playerName: selected.player.name,
         teamName: selected.team.shortName || selected.team.name,
@@ -89,20 +76,8 @@ const AwardPick = () => {
   return (
     <div className="award-page">
       <div className="page-header">
-        <h1 className="page-title">ทายรางวัล</h1>
-        <p className="page-subtitle">FIFA World Cup 2026 — ทายดาวซัลโวและนักเตะยอดเยี่ยม</p>
-      </div>
-
-      <div className="award-tabs">
-        {TABS.map(({ type, label }) => (
-          <button
-            key={type}
-            className={`award-tab ${tab === type ? 'active' : ''}`}
-            onClick={() => switchTab(type)}
-          >
-            {label}
-          </button>
-        ))}
+        <h1 className="page-title">ทายดาวซัลโว</h1>
+        <p className="page-subtitle">FIFA World Cup 2026 — Top Scorer</p>
       </div>
 
       {!currentPick && locked && (

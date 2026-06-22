@@ -5,36 +5,6 @@
   margin: 0 auto;
 }
 
-.award-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
-}
-
-.award-tab {
-  flex: 1;
-  padding: 0.6rem 0.5rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text-secondary);
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.18s;
-}
-
-.award-tab:hover {
-  border-color: var(--accent-gold);
-}
-
-.award-tab.active {
-  border-color: var(--accent-gold);
-  background: rgba(201,168,76,0.12);
-  color: var(--accent-gold-light);
-}
-
 .award-current-team-name {
   font-size: 0.8rem;
   color: var(--text-muted);

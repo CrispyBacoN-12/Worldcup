@@ -11,10 +11,10 @@ const Prediction = () => {
 
   const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance, getMultiplier } = usePoints();
 
+  const today = new Date().toDateString();
   const matches = fixtures
-    .filter((m) => new Date(m.utcDate).getTime() > Date.now())
-    .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate))
-    .slice(0, 20);
+    .filter((m) => new Date(m.utcDate).toDateString() === today)
+    .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
 
   const setPick = (matchId, outcome) => {
     setPicks(prev => ({ ...prev, [matchId]: prev[matchId] === outcome ? null : outcome }));
@@ -64,7 +64,7 @@ const Prediction = () => {
 
   if (matches.length === 0) return (
     <div className="error-box" style={{ background: 'rgba(201,168,76,0.08)', color: 'var(--accent-gold)', borderColor: 'var(--border-gold)' }}>
-      No upcoming matches to predict yet.
+      No matches today to predict.
     </div>
   );
 
