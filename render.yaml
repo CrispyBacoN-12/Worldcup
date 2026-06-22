@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: worldcup-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: FOOTBALL_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
