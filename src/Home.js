@@ -32,6 +32,7 @@ const Home = () => {
   }, []);
 
   const filtered = matches
+    .filter(m => m.stage !== 'GROUP_STAGE')
     .filter(m => m.status !== 'FINISHED')
     .filter(m => filter === 'ALL' || m.status === filter);
 

@@ -13,7 +13,7 @@ const Prediction = () => {
 
   const today = new Date().toDateString();
   const matches = fixtures
-    .filter((m) => new Date(m.utcDate).toDateString() === today)
+    .filter((m) => m.stage !== 'GROUP_STAGE' && new Date(m.utcDate).toDateString() === today)
     .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
 
   const setPick = (matchId, outcome) => {
@@ -64,7 +64,7 @@ const Prediction = () => {
 
   if (matches.length === 0) return (
     <div className="error-box" style={{ background: 'rgba(201,168,76,0.08)', color: 'var(--accent-gold)', borderColor: 'var(--border-gold)' }}>
-      No matches today to predict.
+      No matches today to predict. Predictions open from the Round of 32 onward.
     </div>
   );
 
