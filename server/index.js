@@ -36,7 +36,7 @@ const DAILY_ALLOWANCE_PER_MATCH = 100;
 const GRANT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 const matchCountOn = (dateStr) =>
-  fixtures.filter((m) => m.utcDate.slice(0, 10) === dateStr).length;
+  fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === dateStr).length;
 
 // Kickoff of the first LAST_32-stage match in src/data/fixtures.json — picks lock here.
 const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();

@@ -70,7 +70,7 @@ const MatchDetail = () => {
   if (error) return <div className="error-box">{error}</div>;
   if (!match) return null;
 
-  const canPredict = BETTABLE.includes(match.status || 'SCHEDULED');
+  const canPredict = match.stage !== 'GROUP_STAGE' && BETTABLE.includes(match.status || 'SCHEDULED');
 
   const homeName = match.homeTeam.shortName || match.homeTeam.name;
   const awayName = match.awayTeam.shortName || match.awayTeam.name;
@@ -83,7 +83,9 @@ const MatchDetail = () => {
     : outcome === 'away' ? match.awayTeam.name
     : 'Draw';
 
-  const closedLabel = match.status === 'FINISHED'
+  const closedLabel = match.stage === 'GROUP_STAGE'
+    ? 'Predictions are closed for group stage matches.'
+    : match.status === 'FINISHED'
     ? 'This match has finished — predictions are closed.'
     : ['IN_PLAY', 'PAUSED'].includes(match.status)
       ? 'This match is in play — predictions are closed.'
