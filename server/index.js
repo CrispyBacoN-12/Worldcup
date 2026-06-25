@@ -85,7 +85,7 @@ const matchCountOn = (dateStr) =>
 const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
 // The FINAL-stage match id from src/data/fixtures.json (teams resolve once the bracket completes).
 const FINAL_MATCH_ID = 537390;
-const CHAMPION_BASE_POINTS = 10;
+const CHAMPION_BASE_POINTS = 100;
 
 // Top Scorer picks lock alongside the Champion pick.
 const AWARD_LOCK_AT = CHAMPION_LOCK_AT;
