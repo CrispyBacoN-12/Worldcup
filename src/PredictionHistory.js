@@ -3,9 +3,14 @@ import { usePoints } from './PointsContext';
 import './PredictionHistory.css';
 
 const pickLabel = (prediction) => {
-  if (prediction.outcome === 'home') return prediction.homeTeam;
-  if (prediction.outcome === 'away') return prediction.awayTeam;
-  return 'Draw';
+  const { outcome, homeTeam, awayTeam } = prediction;
+  if (outcome === 'home') return homeTeam;
+  if (outcome === 'away') return awayTeam;
+  if (outcome === 'draw') return 'Draw';
+  if (outcome === '1X') return `${homeTeam} or Draw`;
+  if (outcome === '12') return `${homeTeam} or ${awayTeam}`;
+  if (outcome === 'X2') return `Draw or ${awayTeam}`;
+  return outcome;
 };
 
 const StatusBadge = ({ status }) => {
@@ -18,8 +23,7 @@ const StatusBadge = ({ status }) => {
   return <span className={`bet-badge ${cls}`}>{label}</span>;
 };
 
-const StepLegLabel = (leg) =>
-  leg.outcome === 'home' ? leg.homeTeam : leg.outcome === 'away' ? leg.awayTeam : 'Draw';
+const StepLegLabel = (leg) => pickLabel(leg);
 
 const PredictionHistory = () => {
   const { points, availableBalance, predictions, stepPrediction, fetchPoints } = usePoints();
