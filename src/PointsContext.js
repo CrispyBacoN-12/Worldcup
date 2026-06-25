@@ -14,20 +14,16 @@ export const PointsProvider = ({ children }) => {
   const [championPick, setChampionPick] = useState(null);
   const [awardPicks, setAwardPicks] = useState({});
   const [odds, setOdds] = useState({});
-  const [defaultMultiplier, setDefaultMultiplier] = useState(2);
 
   useEffect(() => {
     axios.get(`${BASE}/api/odds`)
-      .then((res) => {
-        setOdds(res.data.odds ?? {});
-        setDefaultMultiplier(res.data.defaultMultiplier ?? 2);
-      })
+      .then((res) => setOdds(res.data.odds ?? {}))
       .catch(() => {});
   }, []);
 
   const getMultiplier = useCallback(
-    (matchId, outcome) => odds[matchId]?.[outcome] ?? defaultMultiplier,
-    [odds, defaultMultiplier]
+    (matchId, outcome) => odds[matchId]?.[outcome],
+    [odds]
   );
 
   const fetchPoints = useCallback(async () => {
