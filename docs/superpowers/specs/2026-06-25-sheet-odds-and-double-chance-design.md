@@ -92,15 +92,17 @@ fetched) simply cannot be bet on until odds appear.
   `undefined` when odds are missing (it already reads from the `/api/odds`
   response; the only change is there's no `defaultMultiplier` fallback to
   return instead).
-- **`src/Prediction.js` / `src/MatchDetail.js`** — the existing 3-button
-  outcome row (Home / Draw / Away) becomes a 6-button grid: Home, Draw, Away,
-  1X, 12, X2. Each button's label includes the multiplier (e.g. "Home ×2.10")
-  when available. A button whose `getMultiplier` is `undefined` renders
-  `disabled` with label suffix "(unavailable)" instead of a multiplier.
+- **`src/Prediction.js`** — the existing 3-button outcome row (Home / Draw /
+  Away) becomes a 6-button grid: Home, Draw, Away, 1X, 12, X2, in both Single
+  and Step mode. Each button's label includes the multiplier (e.g.
+  "Home ×2.10") when available. A button whose `getMultiplier` is `undefined`
+  renders `disabled` with label suffix "(unavailable)" instead of a
+  multiplier. (`src/MatchDetail.js` has no betting UI as of the prior
+  feature change that removed it — no changes needed there.)
 - Step mode (`src/Prediction.js`) uses the same 6-button grid per match card;
   `stepCombinedMultiplier` multiplies whichever of the 6 outcomes were picked
   per leg, unchanged otherwise.
-- **`outcomeLabel`/`pickLabel` helpers** (`Prediction.js`, `MatchDetail.js`,
+- **`outcomeLabel`/`pickLabel`/`StepLegLabel` helpers** (`Prediction.js`,
   `PredictionHistory.js`) extend from a 3-way ternary to handle all 6 values,
   e.g. `'1X'` → `"${homeName} or Draw"`, `'12'` → `"${homeName} or ${awayName}"`,
   `'X2'` → `"Draw or ${awayName}"`.
