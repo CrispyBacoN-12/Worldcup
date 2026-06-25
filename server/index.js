@@ -118,10 +118,11 @@ const saveWallet = (data) => {
 // hasn't been given yet.
 const touchWallet = (wallet, username) => {
   if (!wallet[username])
-    wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null };
+    wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null, stepPrediction: null };
   const userData = wallet[username];
   if (!userData.dailyGrants) userData.dailyGrants = [];
   if (userData.points == null) userData.points = 0;
+  if (userData.stepPrediction === undefined) userData.stepPrediction = null;
 
   // One-time migration from the earlier permanent-money-pool design.
   if (userData.money) userData.points += userData.money;
@@ -209,6 +210,60 @@ const settlePredictions = async (username) => {
     } catch {
       // skip if match fetch fails
     }
+  }
+
+  if (changed) saveWallet(wallet);
+};
+
+// ─── Step (Parlay) Settlement ─────────────────────────────────
+// A step wins only if every leg is correct. As soon as any leg's match
+// finishes with the wrong result, the whole step settles as 'wrong'
+// immediately — no need to wait on the remaining legs.
+const settleStepPrediction = async (username) => {
+  const wallet = getWallet();
+  const userData = touchWallet(wallet, username);
+  const step = userData.stepPrediction;
+  if (!step || step.status !== 'pending') return;
+
+  let anyWrong = false;
+  let allCorrect = true;
+  let changed = false;
+
+  for (const leg of step.legs) {
+    if (leg.status !== 'pending') {
+      if (leg.status === 'wrong') anyWrong = true;
+      continue;
+    }
+    allCorrect = false;
+    try {
+      const match = await fetchFootballData(`matches/${leg.matchId}`);
+      if (match.status !== 'FINISHED') continue;
+
+      const winner = match.score.winner;
+      const correct =
+        (leg.outcome === 'home' && winner === 'HOME_TEAM') ||
+        (leg.outcome === 'away' && winner === 'AWAY_TEAM') ||
+        (leg.outcome === 'draw' && winner === 'DRAW');
+
+      leg.status = correct ? 'correct' : 'wrong';
+      changed = true;
+      if (!correct) anyWrong = true;
+    } catch {
+      // skip if match fetch fails
+    }
+  }
+
+  if (anyWrong) {
+    step.status = 'wrong';
+    step.payout = 0;
+    step.settledAt = new Date().toISOString();
+    changed = true;
+  } else if (allCorrect) {
+    step.status = 'correct';
+    step.payout = Math.round(step.stake * step.combinedMultiplier);
+    step.settledAt = new Date().toISOString();
+    userData.points += step.payout;
+    changed = true;
   }
 
   if (changed) saveWallet(wallet);
@@ -316,6 +371,7 @@ app.post('/api/auth/login', async (req, res) => {
 // ─── Points Routes ───────────────────────────────────────────
 app.get('/api/points', verifyToken, async (req, res) => {
   await settlePredictions(req.user.username);
+  await settleStepPrediction(req.user.username);
   await settleChampionPick(req.user.username);
   settleAwardPicks(req.user.username);
   const wallet = getWallet();
@@ -445,6 +501,71 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
   saveWallet(wallet);
 
   res.json({ availableBalance: availableBalance(userData), prediction });
+});
+
+const STEP_MIN_LEGS = 2;
+const STEP_MAX_LEGS = 10;
+
+app.post('/api/step-predictions', verifyToken, async (req, res) => {
+  const { legs, stake } = req.body;
+  if (!Array.isArray(legs) || legs.length < STEP_MIN_LEGS || legs.length > STEP_MAX_LEGS)
+    return res.status(400).json({ error: `Step must have ${STEP_MIN_LEGS}-${STEP_MAX_LEGS} matches` });
+  if (!legs.every((l) => l && l.matchId && ['home', 'draw', 'away'].includes(l.outcome) && l.homeTeam && l.awayTeam))
+    return res.status(400).json({ error: 'Missing or invalid fields' });
+  if (!Number.isInteger(stake) || stake <= 0)
+    return res.status(400).json({ error: 'stake must be a positive integer' });
+
+  const legMatchIds = legs.map((l) => l.matchId);
+  if (new Set(legMatchIds).size !== legMatchIds.length)
+    return res.status(400).json({ error: 'Each match can only appear once in a step' });
+
+  const wallet = getWallet();
+  const userData = touchWallet(wallet, req.user.username);
+
+  if (userData.stepPrediction && userData.stepPrediction.status === 'pending')
+    return res.status(400).json({ error: 'You already have an open step' });
+
+  const alreadyPicked = new Set(userData.predictions.map((p) => p.matchId));
+  if (legMatchIds.some((id) => alreadyPicked.has(id)))
+    return res.status(400).json({ error: 'You already predicted one of these matches' });
+
+  if (stake > availableBalance(userData))
+    return res.status(400).json({ error: 'stake exceeds available balance' });
+
+  let combinedMultiplier = 1;
+  try {
+    for (const leg of legs) {
+      const match = await fetchFootballData(`matches/${leg.matchId}`);
+      if (!BETTABLE.includes(match.status))
+        return res.status(400).json({ error: 'Predictions are closed for one of these matches' });
+      combinedMultiplier *= getOddsMultiplier(leg.matchId, leg.outcome);
+    }
+  } catch {
+    return res.status(502).json({ error: 'Could not verify match status' });
+  }
+
+  deductStake(userData, stake);
+
+  const stepPrediction = {
+    id: Date.now().toString(),
+    legs: legs.map((l) => ({
+      matchId: l.matchId,
+      homeTeam: l.homeTeam,
+      awayTeam: l.awayTeam,
+      outcome: l.outcome,
+      status: 'pending',
+    })),
+    stake,
+    combinedMultiplier,
+    status: 'pending',
+    payout: null,
+    placedAt: new Date().toISOString(),
+    settledAt: null,
+  };
+  userData.stepPrediction = stepPrediction;
+  saveWallet(wallet);
+
+  res.json({ availableBalance: availableBalance(userData), stepPrediction });
 });
 
 // ─── Football API Proxy ──────────────────────────────────────

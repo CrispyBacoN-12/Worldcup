@@ -18,15 +18,20 @@ const StatusBadge = ({ status }) => {
   return <span className={`bet-badge ${cls}`}>{label}</span>;
 };
 
+const StepLegLabel = (leg) =>
+  leg.outcome === 'home' ? leg.homeTeam : leg.outcome === 'away' ? leg.awayTeam : 'Draw';
+
 const PredictionHistory = () => {
-  const { points, availableBalance, predictions, fetchPoints } = usePoints();
+  const { points, availableBalance, predictions, stepPrediction, fetchPoints } = usePoints();
 
   useEffect(() => {
     fetchPoints();
   }, [fetchPoints]);
 
-  const correct = predictions.filter((p) => p.status === 'correct').length;
-  const wrong = predictions.filter((p) => p.status === 'wrong').length;
+  const stepCorrect = stepPrediction?.status === 'correct' ? 1 : 0;
+  const stepWrong = stepPrediction?.status === 'wrong' ? 1 : 0;
+  const correct = predictions.filter((p) => p.status === 'correct').length + stepCorrect;
+  const wrong = predictions.filter((p) => p.status === 'wrong').length + stepWrong;
 
   return (
     <div className="bets-page">
@@ -56,12 +61,53 @@ const PredictionHistory = () => {
         </div>
       </div>
 
-      {predictions.length === 0 ? (
+      {predictions.length === 0 && !stepPrediction ? (
         <div className="empty-state" style={{ marginTop: '2rem' }}>
           No predictions yet. Go to Predict to make your first pick!
         </div>
       ) : (
         <div className="bets-list">
+          {stepPrediction && (
+            <div className={`bet-card card ${stepPrediction.status}`}>
+              <div className="bet-card-header">
+                <div className="bet-match">
+                  <span className="bet-home">Step ({stepPrediction.legs.length} matches)</span>
+                </div>
+                <StatusBadge status={stepPrediction.status} />
+              </div>
+
+              <div className="bet-card-body">
+                {stepPrediction.legs.map((leg) => (
+                  <div className="bet-detail-row" key={leg.matchId}>
+                    <span className="bet-detail-label">{leg.homeTeam} vs {leg.awayTeam}</span>
+                    <span className="bet-detail-value pick">{StepLegLabel(leg)}</span>
+                  </div>
+                ))}
+                <div className="bet-detail-row">
+                  <span className="bet-detail-label">Stake</span>
+                  <span className="bet-detail-value">${stepPrediction.stake} × {stepPrediction.combinedMultiplier.toFixed(2)}</span>
+                </div>
+                <div className="bet-detail-row">
+                  <span className="bet-detail-label">Result</span>
+                  <span className={`bet-detail-value ${stepPrediction.status === 'correct' ? 'green' : stepPrediction.status === 'wrong' ? 'red' : 'gold'}`}>
+                    {stepPrediction.status === 'pending'
+                      ? 'Pending'
+                      : stepPrediction.status === 'correct'
+                        ? `+${stepPrediction.payout} pts`
+                        : `-$${stepPrediction.stake}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bet-card-footer">
+                {new Date(stepPrediction.placedAt).toLocaleDateString('en-GB', {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit',
+                })}
+              </div>
+            </div>
+          )}
+
           {predictions.map((prediction) => (
             <div key={prediction.id} className={`bet-card card ${prediction.status}`}>
               <div className="bet-card-header">

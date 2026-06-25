@@ -3,13 +3,25 @@ import fixtures from './data/fixtures.json';
 import { usePoints } from './PointsContext';
 import './Prediction.css';
 
+const STEP_MIN_LEGS = 2;
+const STEP_MAX_LEGS = 10;
+
 const Prediction = () => {
+  const [mode, setMode] = useState('single');     // 'single' | 'step'
   const [picks, setPicks] = useState({});          // { [matchId]: 'home'|'draw'|'away' }
   const [stakes, setStakes] = useState({});        // { [matchId]: string }
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const { points, dailyGrants, predictions: serverPredictions, submitPrediction, availableBalance, getMultiplier } = usePoints();
+  const [stepPicks, setStepPicks] = useState({});  // { [matchId]: 'home'|'draw'|'away' }
+  const [stepStake, setStepStake] = useState('');
+  const [stepSubmitting, setStepSubmitting] = useState(false);
+  const [stepError, setStepError] = useState('');
+
+  const {
+    points, dailyGrants, predictions: serverPredictions, stepPrediction,
+    submitPrediction, submitStepPrediction, availableBalance, getMultiplier,
+  } = usePoints();
 
   const today = new Date().toDateString();
   const matches = fixtures
@@ -57,6 +69,60 @@ const Prediction = () => {
     }
   };
 
+  const hasOpenStep = stepPrediction && stepPrediction.status === 'pending';
+
+  const setStepPick = (matchId, outcome) => {
+    setStepPicks(prev => {
+      if (prev[matchId] === outcome) {
+        const next = { ...prev };
+        delete next[matchId];
+        return next;
+      }
+      return { ...prev, [matchId]: outcome };
+    });
+    setStepError('');
+  };
+
+  const stepLegIds = Object.keys(stepPicks);
+  const stepCombinedMultiplier = stepLegIds.reduce(
+    (acc, matchId) => acc * getMultiplier(Number(matchId), stepPicks[matchId]),
+    1
+  );
+  const stepStakeValue = Number(stepStake);
+  const stepStakeIsValid = stepStake !== '' && Number.isInteger(stepStakeValue) &&
+    stepStakeValue > 0 && stepStakeValue <= availableBalance;
+  const stepPotentialPayout = stepStakeIsValid ? Math.round(stepStakeValue * stepCombinedMultiplier) : 0;
+  const stepCanSubmit = stepLegIds.length >= STEP_MIN_LEGS && stepLegIds.length <= STEP_MAX_LEGS && stepStakeIsValid;
+
+  const handleSubmitStep = async () => {
+    if (!stepCanSubmit) return;
+    setStepSubmitting(true);
+    setStepError('');
+    try {
+      const legs = stepLegIds.map((matchId) => {
+        const match = matches.find((m) => m.id === Number(matchId));
+        return {
+          matchId: Number(matchId),
+          homeTeam: match.homeTeam.shortName || match.homeTeam.name,
+          awayTeam: match.awayTeam.shortName || match.awayTeam.name,
+          outcome: stepPicks[matchId],
+        };
+      });
+      await submitStepPrediction({ legs, stake: stepStakeValue });
+      setStepPicks({});
+      setStepStake('');
+    } catch (err) {
+      setStepError(err.response?.data?.error || 'Failed to submit step');
+    } finally {
+      setStepSubmitting(false);
+    }
+  };
+
+  const outcomeLabel = (match, outcome) =>
+    outcome === 'home' ? (match.homeTeam.shortName || match.homeTeam.name)
+    : outcome === 'away' ? (match.awayTeam.shortName || match.awayTeam.name)
+    : 'Draw';
+
   const formatDate = (dateStr) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -87,10 +153,44 @@ const Prediction = () => {
         </div>
       )}
 
+      <div className="mode-toggle">
+        <button
+          className={`mode-toggle-btn ${mode === 'single' ? 'active' : ''}`}
+          onClick={() => setMode('single')}
+        >
+          Single
+        </button>
+        <button
+          className={`mode-toggle-btn ${mode === 'step' ? 'active' : ''}`}
+          onClick={() => setMode('step')}
+        >
+          Step (สเตป)
+        </button>
+      </div>
+
+      {mode === 'step' && hasOpenStep && (
+        <div className="existing-bet" style={{ marginBottom: '1rem' }}>
+          <span className="existing-bet-label">Your Open Step</span>
+          <div className="existing-bet-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
+            {stepPrediction.legs.map((leg) => (
+              <span key={leg.matchId} className="existing-pick">
+                {leg.homeTeam} vs {leg.awayTeam} — {leg.outcome === 'home' ? leg.homeTeam : leg.outcome === 'away' ? leg.awayTeam : 'Draw'}
+              </span>
+            ))}
+            <span className="existing-detail">
+              Staked ${stepPrediction.stake} × {stepPrediction.combinedMultiplier} — Waiting for all matches to finish…
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="prediction-list">
         {matches.map(match => {
           const pick = picks[match.id];
           const existing = serverPredictions?.find((p) => p.matchId === match.id);
+          const inOpenStep = hasOpenStep && stepPrediction.legs.some((l) => l.matchId === match.id);
+          const stepPick = stepPicks[match.id];
+          const stepDisabled = !!existing || inOpenStep;
 
           return (
             <div key={match.id} className="prediction-card card">
@@ -108,32 +208,93 @@ const Prediction = () => {
                 </div>
               </div>
 
-              <div className="bet-section">
-                <div className="bet-section-title">Predict Winner — stake money, win at the odds</div>
+              {mode === 'single' ? (
+                <div className="bet-section">
+                  <div className="bet-section-title">Predict Winner — stake money, win at the odds</div>
 
-                {existing ? (
-                  <div className="existing-bet">
-                    <span className="existing-bet-label">Your Prediction</span>
-                    <div className="existing-bet-info">
-                      <span className="existing-pick">
-                        {existing.outcome === 'home'
-                          ? match.homeTeam.shortName || match.homeTeam.name
-                          : existing.outcome === 'away'
-                          ? match.awayTeam.shortName || match.awayTeam.name
-                          : 'Draw'}
-                        {' — Staked $' + existing.stake}
-                      </span>
-                      <span className="existing-detail">
-                        {existing.status === 'pending'
-                          ? 'Waiting for result…'
-                          : existing.status === 'correct'
-                            ? `Correct! Won ${existing.payout} pts ⭐`
-                            : 'Wrong — stake lost'}
-                      </span>
+                  {existing ? (
+                    <div className="existing-bet">
+                      <span className="existing-bet-label">Your Prediction</span>
+                      <div className="existing-bet-info">
+                        <span className="existing-pick">
+                          {outcomeLabel(match, existing.outcome)}
+                          {' — Staked $' + existing.stake}
+                        </span>
+                        <span className="existing-detail">
+                          {existing.status === 'pending'
+                            ? 'Waiting for result…'
+                            : existing.status === 'correct'
+                              ? `Correct! Won ${existing.payout} pts ⭐`
+                              : 'Wrong — stake lost'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
+                  ) : (
+                    <>
+                      <div className="bet-outcomes">
+                        {[
+                          { key: 'home', label: match.homeTeam.shortName || match.homeTeam.name },
+                          { key: 'draw', label: 'Draw' },
+                          { key: 'away', label: match.awayTeam.shortName || match.awayTeam.name },
+                        ].map(({ key, label }) => (
+                          <button
+                            key={key}
+                            className={`bet-outcome-btn ${pick === key ? 'selected' : ''}`}
+                            onClick={() => setPick(match.id, key)}
+                          >
+                            <span className="outcome-label">{label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {pick && (() => {
+                        const multiplier = getMultiplier(match.id, pick);
+                        const stakeValue = Number(stakes[match.id]);
+                        const potentialPayout = stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
+                        return (
+                          <div className="bet-controls">
+                            <div className="stake-input-wrapper">
+                              <span className="stake-input-prefix">$</span>
+                              <input
+                                type="number"
+                                min="1"
+                                className="stake-input"
+                                placeholder="0"
+                                value={stakes[match.id] ?? ''}
+                                onChange={(e) => setStake(match.id, e.target.value)}
+                              />
+                            </div>
+                            <div className="payout-preview">
+                              <span className="payout-preview-text">
+                                {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
+                              </span>
+                              <span className="odds-badge">×{multiplier}</span>
+                            </div>
+                            <button
+                              className="bet-submit-btn"
+                              onClick={() => handleSubmitPick(match)}
+                              disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
+                            >
+                              {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
+                            </button>
+                          </div>
+                        );
+                      })()}
+
+                      {pickErrors[match.id] && (
+                        <div className="bet-error">{pickErrors[match.id]}</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="bet-section">
+                  <div className="bet-section-title">Add to Step — pick a result for this match</div>
+                  {stepDisabled ? (
+                    <div className="detail-bet-prompt">
+                      {existing ? 'Already predicted individually.' : 'Already in your open step.'}
+                    </div>
+                  ) : (
                     <div className="bet-outcomes">
                       {[
                         { key: 'home', label: match.homeTeam.shortName || match.homeTeam.name },
@@ -142,58 +303,76 @@ const Prediction = () => {
                       ].map(({ key, label }) => (
                         <button
                           key={key}
-                          className={`bet-outcome-btn ${pick === key ? 'selected' : ''}`}
-                          onClick={() => setPick(match.id, key)}
+                          className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
+                          onClick={() => setStepPick(match.id, key)}
                         >
                           <span className="outcome-label">{label}</span>
                         </button>
                       ))}
                     </div>
-
-                    {pick && (() => {
-                      const multiplier = getMultiplier(match.id, pick);
-                      const stakeValue = Number(stakes[match.id]);
-                      const potentialPayout = stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
-                      return (
-                        <div className="bet-controls">
-                          <div className="stake-input-wrapper">
-                            <span className="stake-input-prefix">$</span>
-                            <input
-                              type="number"
-                              min="1"
-                              className="stake-input"
-                              placeholder="0"
-                              value={stakes[match.id] ?? ''}
-                              onChange={(e) => setStake(match.id, e.target.value)}
-                            />
-                          </div>
-                          <div className="payout-preview">
-                            <span className="payout-preview-text">
-                              {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
-                            </span>
-                            <span className="odds-badge">×{multiplier}</span>
-                          </div>
-                          <button
-                            className="bet-submit-btn"
-                            onClick={() => handleSubmitPick(match)}
-                            disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
-                          >
-                            {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
-                          </button>
-                        </div>
-                      );
-                    })()}
-
-                    {pickErrors[match.id] && (
-                      <div className="bet-error">{pickErrors[match.id]}</div>
-                    )}
-                  </>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {mode === 'step' && stepLegIds.length > 0 && (
+        <div className="step-slip card">
+          <div className="bet-section-title">Step Slip ({stepLegIds.length}/{STEP_MAX_LEGS} matches)</div>
+          <div className="step-slip-legs">
+            {stepLegIds.map((matchId) => {
+              const match = matches.find((m) => m.id === Number(matchId));
+              const outcome = stepPicks[matchId];
+              return (
+                <div key={matchId} className="step-slip-leg">
+                  <span className="step-slip-leg-label">
+                    {match.homeTeam.shortName || match.homeTeam.name} vs {match.awayTeam.shortName || match.awayTeam.name}
+                    {' — '}{outcomeLabel(match, outcome)}
+                  </span>
+                  <button className="step-slip-remove" onClick={() => setStepPick(matchId, outcome)}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+
+          {stepLegIds.length < STEP_MIN_LEGS && (
+            <div className="detail-bet-prompt">Pick at least {STEP_MIN_LEGS} matches to build a step</div>
+          )}
+
+          {stepLegIds.length >= STEP_MIN_LEGS && (
+            <div className="bet-controls">
+              <div className="stake-input-wrapper">
+                <span className="stake-input-prefix">$</span>
+                <input
+                  type="number"
+                  min="1"
+                  className="stake-input"
+                  placeholder="0"
+                  value={stepStake}
+                  onChange={(e) => setStepStake(e.target.value)}
+                />
+              </div>
+              <div className="payout-preview">
+                <span className="payout-preview-text">
+                  {stepPotentialPayout > 0 ? `รับ ${stepPotentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
+                </span>
+                <span className="odds-badge">×{stepCombinedMultiplier.toFixed(2)}</span>
+              </div>
+              <button
+                className="bet-submit-btn"
+                onClick={handleSubmitStep}
+                disabled={stepSubmitting || !stepCanSubmit}
+              >
+                {stepSubmitting ? <span className="btn-spinner-small" /> : 'Confirm Step'}
+              </button>
+            </div>
+          )}
+
+          {stepError && <div className="bet-error">{stepError}</div>}
+        </div>
+      )}
     </div>
   );
 };
