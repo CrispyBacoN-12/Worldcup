@@ -221,6 +221,16 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+const outcomeWins = (outcome, winner) => {
+  if (outcome === 'home') return winner === 'HOME_TEAM';
+  if (outcome === 'away') return winner === 'AWAY_TEAM';
+  if (outcome === 'draw') return winner === 'DRAW';
+  if (outcome === '1X') return winner === 'HOME_TEAM' || winner === 'DRAW';
+  if (outcome === '12') return winner === 'HOME_TEAM' || winner === 'AWAY_TEAM';
+  if (outcome === 'X2') return winner === 'DRAW' || winner === 'AWAY_TEAM';
+  return false;
+};
+
 // ─── Prediction Settlement ───────────────────────────────────
 // Correct outcome converts stake * matchOdds[matchId][outcome] (default 2x)
 // into points — winnings are points, not stakeable money. Wrong outcome
@@ -238,13 +248,13 @@ const settlePredictions = async (username) => {
       const match = await fetchFootballData(`matches/${prediction.matchId}`);
       if (match.status !== 'FINISHED') continue;
 
-      const winner = match.score.winner;
-      const correct =
-        (prediction.outcome === 'home' && winner === 'HOME_TEAM') ||
-        (prediction.outcome === 'away' && winner === 'AWAY_TEAM') ||
-        (prediction.outcome === 'draw' && winner === 'DRAW');
+      const correct = outcomeWins(prediction.outcome, match.score.winner);
 
-      const multiplier = getOddsMultiplier(prediction.matchId, prediction.outcome);
+      // Odds can change in the sheet between placement and settlement; fall
+      // back to the multiplier of 1 (no winnings beyond the stake) rather
+      // than letting a missing row turn a real win into a NaN payout.
+      const odds = await fetchOddsFromSheet();
+      const multiplier = getOddsMultiplier(odds, prediction.matchId, prediction.outcome) ?? 1;
       prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
       prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
@@ -282,15 +292,9 @@ const settleStepPrediction = async (username) => {
       const match = await fetchFootballData(`matches/${leg.matchId}`);
       if (match.status !== 'FINISHED') continue;
 
-      const winner = match.score.winner;
-      const correct =
-        (leg.outcome === 'home' && winner === 'HOME_TEAM') ||
-        (leg.outcome === 'away' && winner === 'AWAY_TEAM') ||
-        (leg.outcome === 'draw' && winner === 'DRAW');
-
-      leg.status = correct ? 'correct' : 'wrong';
+      leg.status = outcomeWins(leg.outcome, match.score.winner) ? 'correct' : 'wrong';
       changed = true;
-      if (!correct) anyWrong = true;
+      if (leg.status === 'wrong') anyWrong = true;
     } catch {
       // skip if match fetch fails
     }
@@ -505,7 +509,7 @@ const BETTABLE = ['SCHEDULED', 'TIMED'];
 
 app.post('/api/predictions', verifyToken, async (req, res) => {
   const { matchId, homeTeam, awayTeam, outcome, stake } = req.body;
-  if (!matchId || !['home', 'draw', 'away'].includes(outcome))
+  if (!matchId || !OUTCOMES.includes(outcome))
     return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
@@ -526,6 +530,11 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
   } catch {
     return res.status(502).json({ error: 'Could not verify match status' });
   }
+
+  const odds = await fetchOddsFromSheet();
+  const multiplier = getOddsMultiplier(odds, matchId, outcome);
+  if (multiplier == null)
+    return res.status(400).json({ error: 'Odds are not available for this match yet' });
 
   deductStake(userData, stake);
 
@@ -554,7 +563,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
   const { legs, stake } = req.body;
   if (!Array.isArray(legs) || legs.length < STEP_MIN_LEGS || legs.length > STEP_MAX_LEGS)
     return res.status(400).json({ error: `Step must have ${STEP_MIN_LEGS}-${STEP_MAX_LEGS} matches` });
-  if (!legs.every((l) => l && l.matchId && ['home', 'draw', 'away'].includes(l.outcome) && l.homeTeam && l.awayTeam))
+  if (!legs.every((l) => l && l.matchId && OUTCOMES.includes(l.outcome) && l.homeTeam && l.awayTeam))
     return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
@@ -578,11 +587,15 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
 
   let combinedMultiplier = 1;
   try {
+    const odds = await fetchOddsFromSheet();
     for (const leg of legs) {
       const match = await fetchFootballData(`matches/${leg.matchId}`);
       if (!BETTABLE.includes(match.status))
         return res.status(400).json({ error: 'Predictions are closed for one of these matches' });
-      combinedMultiplier *= getOddsMultiplier(leg.matchId, leg.outcome);
+      const multiplier = getOddsMultiplier(odds, leg.matchId, leg.outcome);
+      if (multiplier == null)
+        return res.status(400).json({ error: 'Odds are not available for one of these matches yet' });
+      combinedMultiplier *= multiplier;
     }
   } catch {
     return res.status(502).json({ error: 'Could not verify match status' });
