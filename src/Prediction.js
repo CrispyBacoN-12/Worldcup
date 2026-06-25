@@ -118,10 +118,27 @@ const Prediction = () => {
     }
   };
 
-  const outcomeLabel = (match, outcome) =>
-    outcome === 'home' ? (match.homeTeam.shortName || match.homeTeam.name)
-    : outcome === 'away' ? (match.awayTeam.shortName || match.awayTeam.name)
-    : 'Draw';
+  const homeAbbr = (match) => match.homeTeam.shortName || match.homeTeam.name;
+  const awayAbbr = (match) => match.awayTeam.shortName || match.awayTeam.name;
+
+  const outcomeLabel = (match, outcome) => {
+    if (outcome === 'home') return homeAbbr(match);
+    if (outcome === 'away') return awayAbbr(match);
+    if (outcome === 'draw') return 'Draw';
+    if (outcome === '1X') return `${homeAbbr(match)} or Draw`;
+    if (outcome === '12') return `${homeAbbr(match)} or ${awayAbbr(match)}`;
+    if (outcome === 'X2') return `Draw or ${awayAbbr(match)}`;
+    return outcome;
+  };
+
+  const outcomeButtons = (match) => [
+    { key: 'home', label: homeAbbr(match) },
+    { key: 'draw', label: 'Draw' },
+    { key: 'away', label: awayAbbr(match) },
+    { key: '1X', label: '1X' },
+    { key: '12', label: '12' },
+    { key: 'X2', label: 'X2' },
+  ];
 
   const formatDate = (dateStr) => {
     const d = new Date(dateStr);
@@ -174,7 +191,7 @@ const Prediction = () => {
           <div className="existing-bet-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
             {stepPrediction.legs.map((leg) => (
               <span key={leg.matchId} className="existing-pick">
-                {leg.homeTeam} vs {leg.awayTeam} — {leg.outcome === 'home' ? leg.homeTeam : leg.outcome === 'away' ? leg.awayTeam : 'Draw'}
+                {leg.homeTeam} vs {leg.awayTeam} — {outcomeLabel({ homeTeam: { name: leg.homeTeam }, awayTeam: { name: leg.awayTeam } }, leg.outcome)}
               </span>
             ))}
             <span className="existing-detail">
@@ -232,19 +249,23 @@ const Prediction = () => {
                   ) : (
                     <>
                       <div className="bet-outcomes">
-                        {[
-                          { key: 'home', label: match.homeTeam.shortName || match.homeTeam.name },
-                          { key: 'draw', label: 'Draw' },
-                          { key: 'away', label: match.awayTeam.shortName || match.awayTeam.name },
-                        ].map(({ key, label }) => (
-                          <button
-                            key={key}
-                            className={`bet-outcome-btn ${pick === key ? 'selected' : ''}`}
-                            onClick={() => setPick(match.id, key)}
-                          >
-                            <span className="outcome-label">{label}</span>
-                          </button>
-                        ))}
+                        {outcomeButtons(match).map(({ key, label }) => {
+                          const multiplier = getMultiplier(match.id, key);
+                          const unavailable = multiplier == null;
+                          return (
+                            <button
+                              key={key}
+                              className={`bet-outcome-btn ${pick === key ? 'selected' : ''}`}
+                              onClick={() => !unavailable && setPick(match.id, key)}
+                              disabled={unavailable}
+                            >
+                              <span className="outcome-label">{label}</span>
+                              <span className="outcome-multiplier">
+                                {unavailable ? 'N/A' : `×${multiplier}`}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
 
                       {pick && (() => {
@@ -296,19 +317,23 @@ const Prediction = () => {
                     </div>
                   ) : (
                     <div className="bet-outcomes">
-                      {[
-                        { key: 'home', label: match.homeTeam.shortName || match.homeTeam.name },
-                        { key: 'draw', label: 'Draw' },
-                        { key: 'away', label: match.awayTeam.shortName || match.awayTeam.name },
-                      ].map(({ key, label }) => (
-                        <button
-                          key={key}
-                          className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
-                          onClick={() => setStepPick(match.id, key)}
-                        >
-                          <span className="outcome-label">{label}</span>
-                        </button>
-                      ))}
+                      {outcomeButtons(match).map(({ key, label }) => {
+                        const multiplier = getMultiplier(match.id, key);
+                        const unavailable = multiplier == null;
+                        return (
+                          <button
+                            key={key}
+                            className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
+                            onClick={() => !unavailable && setStepPick(match.id, key)}
+                            disabled={unavailable}
+                          >
+                            <span className="outcome-label">{label}</span>
+                            <span className="outcome-multiplier">
+                              {unavailable ? 'N/A' : `×${multiplier}`}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

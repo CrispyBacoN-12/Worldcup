@@ -173,6 +173,7 @@
 .bet-outcomes {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
@@ -210,6 +211,22 @@
 }
 
 .bet-outcome-btn.selected .outcome-label { color: var(--text-primary); }
+
+.bet-outcome-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bet-outcome-btn:disabled:hover {
+  border-color: var(--border);
+}
+
+.outcome-multiplier {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.bet-outcome-btn.selected .outcome-multiplier { color: var(--accent-gold); }
 
 /* BET CONTROLS */
 .bet-controls {
