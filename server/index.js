@@ -25,10 +25,53 @@ const CHAMPION_TEAMS_FILE = nodePath.join(__dirname, 'data', 'championTeams.json
 const championTeams = JSON.parse(fs.readFileSync(CHAMPION_TEAMS_FILE, 'utf8'));
 const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
 
-const MATCH_ODDS_FILE = nodePath.join(__dirname, 'data', 'matchOdds.json');
-const matchOdds = JSON.parse(fs.readFileSync(MATCH_ODDS_FILE, 'utf8'));
-const DEFAULT_ODDS_MULTIPLIER = 2;
-const getOddsMultiplier = (matchId, outcome) => matchOdds[matchId]?.[outcome] ?? DEFAULT_ODDS_MULTIPLIER;
+const ODDS_SHEET_CSV_URL = process.env.ODDS_SHEET_CSV_URL;
+const ODDS_CACHE_TTL_MS = 60 * 1000;
+const OUTCOMES = ['home', 'draw', 'away', '1X', '12', 'X2'];
+let oddsCache = { data: {}, fetchedAt: 0 };
+
+// One row per match: matchId, home, draw, away, 1X, 12, X2 (header required,
+// columns located by name). Blank/non-numeric cells mean "no odds for that
+// outcome" — they're simply omitted from the parsed result.
+const parseOddsCsv = (csvText) => {
+  const lines = csvText.trim().split(/\r?\n/);
+  const header = lines[0].split(',').map((h) => h.trim());
+  const result = {};
+  for (const line of lines.slice(1)) {
+    if (!line.trim()) continue;
+    const cells = line.split(',').map((c) => c.trim());
+    const row = {};
+    header.forEach((col, i) => { row[col] = cells[i]; });
+    const matchId = row.matchId;
+    if (!matchId) continue;
+
+    const outcomes = {};
+    for (const outcome of OUTCOMES) {
+      const raw = row[outcome];
+      const value = Number(raw);
+      if (raw !== undefined && raw !== '' && !Number.isNaN(value)) {
+        outcomes[outcome] = value;
+      }
+    }
+    result[matchId] = outcomes;
+  }
+  return result;
+};
+
+const fetchOddsFromSheet = async () => {
+  if (Date.now() - oddsCache.fetchedAt < ODDS_CACHE_TTL_MS) return oddsCache.data;
+  try {
+    const res = await axios.get(ODDS_SHEET_CSV_URL);
+    oddsCache = { data: parseOddsCsv(res.data), fetchedAt: Date.now() };
+  } catch {
+    // Keep serving whatever was cached before (or {} if nothing has ever
+    // succeeded) — a sheet hiccup shouldn't wipe out odds that were working.
+    oddsCache = { ...oddsCache, fetchedAt: Date.now() };
+  }
+  return oddsCache.data;
+};
+
+const getOddsMultiplier = (odds, matchId, outcome) => odds[matchId]?.[outcome];
 
 const FIXTURES_FILE = nodePath.join(__dirname, 'data', 'fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
@@ -395,8 +438,9 @@ app.get('/api/champion/teams', (req, res) => {
   res.json({ lockAt: new Date(CHAMPION_LOCK_AT).toISOString(), teams: championTeams });
 });
 
-app.get('/api/odds', (req, res) => {
-  res.json({ odds: matchOdds, defaultMultiplier: DEFAULT_ODDS_MULTIPLIER });
+app.get('/api/odds', async (req, res) => {
+  const odds = await fetchOddsFromSheet();
+  res.json({ odds });
 });
 
 app.get('/api/awards/meta', (req, res) => {
