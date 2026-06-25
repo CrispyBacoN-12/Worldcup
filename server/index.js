@@ -73,6 +73,41 @@ const fetchOddsFromSheet = async () => {
 
 const getOddsMultiplier = (odds, matchId, outcome) => odds[matchId]?.[outcome];
 
+const PLAYER_ODDS_SHEET_CSV_URL = process.env.PLAYER_ODDS_SHEET_CSV_URL;
+let playerOddsCache = { data: {}, fetchedAt: 0 };
+
+// One row per player: playerId, multiplier. Doesn't need to cover every
+// live scorer candidate — only whichever player(s) have a row get a
+// non-default multiplier; everyone else falls back to 1 at settlement.
+const parsePlayerOddsCsv = (csvText) => {
+  const lines = csvText.trim().split(/\r?\n/);
+  const header = lines[0].split(',').map((h) => h.trim());
+  const playerIdCol = header.indexOf('playerId');
+  const multiplierCol = header.indexOf('multiplier');
+  const result = {};
+  for (const line of lines.slice(1)) {
+    if (!line.trim()) continue;
+    const cells = line.split(',').map((c) => c.trim());
+    const playerId = cells[playerIdCol];
+    const value = Number(cells[multiplierCol]);
+    if (playerId && !Number.isNaN(value)) {
+      result[playerId] = value;
+    }
+  }
+  return result;
+};
+
+const fetchPlayerOddsFromSheet = async () => {
+  if (Date.now() - playerOddsCache.fetchedAt < ODDS_CACHE_TTL_MS) return playerOddsCache.data;
+  try {
+    const res = await axios.get(PLAYER_ODDS_SHEET_CSV_URL);
+    playerOddsCache = { data: parsePlayerOddsCsv(res.data), fetchedAt: Date.now() };
+  } catch {
+    playerOddsCache = { ...playerOddsCache, fetchedAt: Date.now() };
+  }
+  return playerOddsCache.data;
+};
+
 const FIXTURES_FILE = nodePath.join(__dirname, 'data', 'fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
 const DAILY_ALLOWANCE_PER_MATCH = 100;
@@ -91,6 +126,7 @@ const CHAMPION_BASE_POINTS = 100;
 const AWARD_LOCK_AT = CHAMPION_LOCK_AT;
 const AWARDS_FILE = nodePath.join(__dirname, 'data', 'awards.json');
 const AWARD_TYPES = ['topScorer'];
+const AWARD_BASE_POINTS = 100;
 // The actual Top Scorer isn't exposed by the football-data API, so the
 // result is filled in here by hand once it's officially announced.
 const getAwards = () => JSON.parse(fs.readFileSync(AWARDS_FILE, 'utf8'));
@@ -351,7 +387,7 @@ const settleChampionPick = async (username) => {
 // ─── Award Pick Settlement ────────────────────────────────────
 // The actual Top Scorer winner is entered by hand in
 // server/data/awards.json once FIFA announces it (see getAwards above).
-const settleAwardPicks = (username) => {
+const settleAwardPicks = async (username) => {
   const wallet = getWallet();
   const userData = touchWallet(wallet, username);
   if (!userData.awardPicks) return;
@@ -364,8 +400,14 @@ const settleAwardPicks = (username) => {
     if (!pick || pick.status !== 'pending' || !actual || actual.actualPlayerId == null) continue;
 
     const correct = pick.playerId === actual.actualPlayerId;
+    if (correct) {
+      const playerOdds = await fetchPlayerOddsFromSheet();
+      const multiplier = playerOdds[actual.actualPlayerId] ?? 1;
+      pick.pointsAwarded = Math.round(AWARD_BASE_POINTS * multiplier);
+    } else {
+      pick.pointsAwarded = 0;
+    }
     pick.status = correct ? 'correct' : 'wrong';
-    pick.pointsAwarded = correct ? actual.basePoints : 0;
     pick.settledAt = new Date().toISOString();
     if (correct) userData.points += pick.pointsAwarded;
     changed = true;
@@ -420,7 +462,7 @@ app.get('/api/points', verifyToken, async (req, res) => {
   await settlePredictions(req.user.username);
   await settleStepPrediction(req.user.username);
   await settleChampionPick(req.user.username);
-  settleAwardPicks(req.user.username);
+  await settleAwardPicks(req.user.username);
   const wallet = getWallet();
   const userData = touchWallet(wallet, req.user.username);
   saveWallet(wallet);
