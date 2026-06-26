@@ -59,11 +59,11 @@ const Login = () => {
 
         <form className="login-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Username</label>
+            <label className="form-label">รหัสนักศึกษา</label>
             <input
               type="text"
               className="form-input"
-              placeholder="Enter username"
+              placeholder="Enter รหัสนักศึกษา"
               value={username}
               onChange={e => setUsername(e.target.value)}
               autoComplete="username"
