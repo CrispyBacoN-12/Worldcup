@@ -11,3 +11,7 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # MongoDB Atlas connection string — without this the server falls back to
+      # JSON files, which do NOT persist on Render (data lost on restart/deploy).
+      - key: MONGODB_URI
+        sync: false

@@ -19,8 +19,6 @@ app.use(express.json());
 const API_KEY = process.env.FOOTBALL_API_KEY;
 const BASE = 'https://api.football-data.org/v4';
 const JWT_SECRET = process.env.JWT_SECRET;
-const USERS_FILE = nodePath.join(__dirname, 'users.json');
-const WALLET_FILE = nodePath.join(__dirname, 'wallet.json');
 const CHAMPION_TEAMS_FILE = nodePath.join(__dirname, 'data', 'championTeams.json');
 const championTeams = JSON.parse(fs.readFileSync(CHAMPION_TEAMS_FILE, 'utf8'));
 const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
@@ -174,22 +172,9 @@ const fetchFootballData = (path, query = '') => {
   });
 };
 
-// ─── File helpers ────────────────────────────────────────────
-const getUsers = () => {
-  if (!fs.existsSync(USERS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-};
-const saveUsers = (users) => {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-};
-
-const getWallet = () => {
-  if (!fs.existsSync(WALLET_FILE)) return {};
-  return JSON.parse(fs.readFileSync(WALLET_FILE, 'utf8'));
-};
-const saveWallet = (data) => {
-  fs.writeFileSync(WALLET_FILE, JSON.stringify(data, null, 2));
-};
+// ─── Storage (file on local, MongoDB on Render) ──────────────
+const storage = require('./storage');
+const { getUsers, saveUsers, getWallet, saveWallet } = storage;
 
 // Ensures the wallet record exists, folds any expired or unstaked daily
 // money into points (money only ever becomes points — it never just
@@ -273,7 +258,7 @@ const outcomeWins = (outcome, winner) => {
 // forfeits the stake (already deducted at placement). Legacy predictions
 // placed before staking existed (no `stake` field) are left alone.
 const settlePredictions = async (username) => {
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, username);
   const pending = userData.predictions.filter((p) => p.status === 'pending' && p.stake != null);
   if (pending.length === 0) return;
@@ -301,7 +286,7 @@ const settlePredictions = async (username) => {
     }
   }
 
-  if (changed) saveWallet(wallet);
+  if (changed) await saveWallet(wallet);
 };
 
 // ─── Step (Parlay) Settlement ─────────────────────────────────
@@ -309,7 +294,7 @@ const settlePredictions = async (username) => {
 // finishes with the wrong result, the whole step settles as 'wrong'
 // immediately — no need to wait on the remaining legs.
 const settleStepPrediction = async (username) => {
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, username);
   const step = userData.stepPrediction;
   if (!step || step.status !== 'pending') return;
@@ -349,12 +334,12 @@ const settleStepPrediction = async (username) => {
     changed = true;
   }
 
-  if (changed) saveWallet(wallet);
+  if (changed) await saveWallet(wallet);
 };
 
 // ─── Champion Pick Settlement ─────────────────────────────────
 const settleChampionPick = async (username) => {
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, username);
   const pick = userData.championPick;
   if (!pick || pick.status !== 'pending') return;
@@ -378,7 +363,7 @@ const settleChampionPick = async (username) => {
     pick.settledAt = new Date().toISOString();
     if (correct) userData.points += pick.pointsAwarded;
 
-    saveWallet(wallet);
+    await saveWallet(wallet);
   } catch {
     // skip if the final match fetch fails
   }
@@ -388,7 +373,7 @@ const settleChampionPick = async (username) => {
 // The actual Top Scorer winner is entered by hand in
 // server/data/awards.json once FIFA announces it (see getAwards above).
 const settleAwardPicks = async (username) => {
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, username);
   if (!userData.awardPicks) return;
 
@@ -413,7 +398,7 @@ const settleAwardPicks = async (username) => {
     changed = true;
   }
 
-  if (changed) saveWallet(wallet);
+  if (changed) await saveWallet(wallet);
 };
 
 // ─── Auth Routes ─────────────────────────────────────────────
@@ -426,18 +411,18 @@ app.post('/api/auth/register', async (req, res) => {
   if (password.length < 6)
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
-  const users = getUsers();
+  const users = await getUsers();
   if (users.find(u => u.username.toLowerCase() === username.toLowerCase()))
     return res.status(409).json({ error: 'Username already taken' });
 
   const hashed = await bcrypt.hash(password, 10);
   users.push({ username, password: hashed, createdAt: new Date().toISOString() });
-  saveUsers(users);
+  await saveUsers(users);
 
   // Initialize wallet for new user
-  const wallet = getWallet();
+  const wallet = await getWallet();
   touchWallet(wallet, username);
-  saveWallet(wallet);
+  await saveWallet(wallet);
 
   const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, username });
@@ -448,7 +433,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password are required' });
 
-  const users = getUsers();
+  const users = await getUsers();
   const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
   if (!user || !(await bcrypt.compare(password, user.password)))
     return res.status(401).json({ error: 'Invalid username or password' });
@@ -463,15 +448,15 @@ app.get('/api/points', verifyToken, async (req, res) => {
   await settleStepPrediction(req.user.username);
   await settleChampionPick(req.user.username);
   await settleAwardPicks(req.user.username);
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, req.user.username);
-  saveWallet(wallet);
+  await saveWallet(wallet);
   res.json(userData);
 });
 
 // ─── Leaderboard Route ────────────────────────────────────────
-app.get('/api/leaderboard', verifyToken, (req, res) => {
-  const wallet = getWallet();
+app.get('/api/leaderboard', verifyToken, async (req, res) => {
+  const wallet = await getWallet();
   const leaderboard = Object.entries(wallet)
     .map(([username, data]) => ({ username, points: data.points || 0 }))
     .sort((a, b) => b.points - a.points)
@@ -493,7 +478,7 @@ app.get('/api/awards/meta', (req, res) => {
   res.json({ lockAt: new Date(AWARD_LOCK_AT).toISOString() });
 });
 
-app.post('/api/champion-pick', verifyToken, (req, res) => {
+app.post('/api/champion-pick', verifyToken, async (req, res) => {
   const { teamId } = req.body;
   const team = championTeamsById.get(teamId);
   if (!team)
@@ -501,7 +486,7 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
   if (Date.now() >= CHAMPION_LOCK_AT)
     return res.status(400).json({ error: 'Champion picks are locked' });
 
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, req.user.username);
 
   userData.championPick = {
@@ -514,13 +499,13 @@ app.post('/api/champion-pick', verifyToken, (req, res) => {
     pointsAwarded: null,
     settledAt: null,
   };
-  saveWallet(wallet);
+  await saveWallet(wallet);
 
   res.json({ points: userData.points, championPick: userData.championPick });
 });
 
 // ─── Award Pick Routes (Top Scorer) ───────────────────────────
-app.post('/api/award-pick', verifyToken, (req, res) => {
+app.post('/api/award-pick', verifyToken, async (req, res) => {
   const { type, playerId, playerName, teamName } = req.body;
   if (!AWARD_TYPES.includes(type))
     return res.status(400).json({ error: 'Unknown award type' });
@@ -529,7 +514,7 @@ app.post('/api/award-pick', verifyToken, (req, res) => {
   if (Date.now() >= AWARD_LOCK_AT)
     return res.status(400).json({ error: 'Award picks are locked' });
 
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, req.user.username);
   if (!userData.awardPicks) userData.awardPicks = {};
 
@@ -542,7 +527,7 @@ app.post('/api/award-pick', verifyToken, (req, res) => {
     pointsAwarded: null,
     settledAt: null,
   };
-  saveWallet(wallet);
+  await saveWallet(wallet);
 
   res.json({ points: userData.points, awardPicks: userData.awardPicks });
 });
@@ -556,7 +541,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
 
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, req.user.username);
 
   if (userData.predictions.find((p) => p.matchId === matchId))
@@ -593,7 +578,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     settledAt: null,
   };
   userData.predictions.unshift(prediction);
-  saveWallet(wallet);
+  await saveWallet(wallet);
 
   res.json({ availableBalance: availableBalance(userData), prediction });
 });
@@ -614,7 +599,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
   if (new Set(legMatchIds).size !== legMatchIds.length)
     return res.status(400).json({ error: 'Each match can only appear once in a step' });
 
-  const wallet = getWallet();
+  const wallet = await getWallet();
   const userData = touchWallet(wallet, req.user.username);
 
   if (userData.stepPrediction && userData.stepPrediction.status === 'pending')
@@ -662,7 +647,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     settledAt: null,
   };
   userData.stepPrediction = stepPrediction;
-  saveWallet(wallet);
+  await saveWallet(wallet);
 
   res.json({ availableBalance: availableBalance(userData), stepPrediction });
 });
@@ -683,6 +668,13 @@ app.get('/api/*', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✓ Server running at http://localhost:${PORT}`);
-});
+storage.init()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✓ Server running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('✗ Storage init failed:', err.message);
+    process.exit(1);
+  });
