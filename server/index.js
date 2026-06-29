@@ -495,18 +495,28 @@ app.get('/api/points', verifyToken, async (req, res) => {
 });
 
 // ─── Leaderboard Route ────────────────────────────────────────
+// Settling every player hits the rate-limited football-data API once per
+// pending prediction, so doing it on every single leaderboard load is slow
+// when several players are open at once. Settle everyone at most once per
+// interval; loads in between just read whatever was last settled.
+const LEADERBOARD_SETTLE_INTERVAL_MS = 60 * 1000;
+let lastLeaderboardSettleAt = 0;
+
 app.get('/api/leaderboard', verifyToken, async (req, res) => {
   // Points only get settled for a user when their own client calls
   // /api/points, so a player who hasn't opened the app since their match
   // finished would show stale points here. Settle everyone first.
-  const usernames = Object.keys(await getWallet());
-  for (const username of usernames) {
-    await withUserLock(username, async () => {
-      await settlePredictions(username);
-      await settleStepPrediction(username);
-      await settleChampionPick(username);
-      await settleAwardPicks(username);
-    });
+  if (Date.now() - lastLeaderboardSettleAt > LEADERBOARD_SETTLE_INTERVAL_MS) {
+    lastLeaderboardSettleAt = Date.now();
+    const usernames = Object.keys(await getWallet());
+    for (const username of usernames) {
+      await withUserLock(username, async () => {
+        await settlePredictions(username);
+        await settleStepPrediction(username);
+        await settleChampionPick(username);
+        await settleAwardPicks(username);
+      });
+    }
   }
 
   const wallet = await getWallet();
