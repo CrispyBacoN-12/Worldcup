@@ -23,9 +23,9 @@ const Prediction = () => {
     submitPrediction, submitStepPrediction, availableBalance, getMultiplier,
   } = usePoints();
 
-  const today = new Date().toDateString();
+  const todayUtc = new Date().toISOString().slice(0, 10);
   const matches = fixtures
-    .filter((m) => m.stage !== 'GROUP_STAGE' && new Date(m.utcDate).toDateString() === today)
+    .filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === todayUtc)
     .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
 
   const setPick = (matchId, outcome) => {
