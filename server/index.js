@@ -287,6 +287,17 @@ const outcomeWins = (outcome, winner) => {
   return false;
 };
 
+// Predictions bet on the regular-time (90 min) result, not the match's
+// overall winner — a knockout match that's drawn after 90 then decided by
+// extra time/penalties should still settle outcome bets off the 90-min
+// score, not match.score.winner (which reflects the final result).
+const regularTimeWinner = (match) => {
+  const { home, away } = match.score.fullTime;
+  if (home > away) return 'HOME_TEAM';
+  if (away > home) return 'AWAY_TEAM';
+  return 'DRAW';
+};
+
 // ─── Prediction Settlement ───────────────────────────────────
 // Correct outcome converts stake * matchOdds[matchId][outcome] (default 2x)
 // into points — winnings are points, not stakeable money. Wrong outcome
@@ -304,7 +315,7 @@ const settlePredictions = async (username) => {
       const match = await fetchFootballData(`matches/${prediction.matchId}`);
       if (match.status !== 'FINISHED') continue;
 
-      const correct = outcomeWins(prediction.outcome, match.score.winner);
+      const correct = outcomeWins(prediction.outcome, regularTimeWinner(match));
 
       // Odds can change in the sheet between placement and settlement; fall
       // back to the multiplier of 1 (no winnings beyond the stake) rather
@@ -348,7 +359,7 @@ const settleStepPrediction = async (username) => {
       const match = await fetchFootballData(`matches/${leg.matchId}`);
       if (match.status !== 'FINISHED') continue;
 
-      leg.status = outcomeWins(leg.outcome, match.score.winner) ? 'correct' : 'wrong';
+      leg.status = outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'correct' : 'wrong';
       changed = true;
       if (leg.status === 'wrong') anyWrong = true;
     } catch {
