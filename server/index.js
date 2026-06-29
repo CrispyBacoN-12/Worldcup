@@ -291,12 +291,33 @@ const outcomeWins = (outcome, winner) => {
 // overall winner — a knockout match that's drawn after 90 then decided by
 // extra time/penalties should still settle outcome bets off the 90-min
 // score, not match.score.winner (which reflects the final result).
+//
+// Gotcha: the API's score.fullTime is NOT a frozen 90-minute snapshot — once
+// extra time starts it keeps updating to the running total (fullTime =
+// regular + extra-time goals so far), and score.duration stays "REGULAR"
+// even mid-extra-time (confirmed live). So the 90-min score has to be
+// derived as fullTime minus extraTime, not read directly off fullTime.
+const regularTimeResult = (match) => {
+  const { fullTime, extraTime } = match.score;
+  if (extraTime && extraTime.home != null) {
+    return { home: fullTime.home - extraTime.home, away: fullTime.away - extraTime.away };
+  }
+  return { home: fullTime.home, away: fullTime.away };
+};
+
 const regularTimeWinner = (match) => {
-  const { home, away } = match.score.fullTime;
+  const { home, away } = regularTimeResult(match);
   if (home > away) return 'HOME_TEAM';
   if (away > home) return 'AWAY_TEAM';
   return 'DRAW';
 };
+
+// The 90-min result is knowable as soon as extra time has started (the API
+// populates score.extraTime once it begins) — no need to wait for the whole
+// match, including penalties, to finish.
+const regularTimeKnown = (match) =>
+  match.score.fullTime?.home != null &&
+  (match.status === 'FINISHED' || (match.score.extraTime && match.score.extraTime.home != null));
 
 // ─── Prediction Settlement ───────────────────────────────────
 // Correct outcome converts stake * matchOdds[matchId][outcome] (default 2x)
@@ -313,7 +334,7 @@ const settlePredictions = async (username) => {
   for (const prediction of pending) {
     try {
       const match = await fetchFootballData(`matches/${prediction.matchId}`);
-      if (match.status !== 'FINISHED') continue;
+      if (!regularTimeKnown(match)) continue;
 
       const correct = outcomeWins(prediction.outcome, regularTimeWinner(match));
 
@@ -357,7 +378,7 @@ const settleStepPrediction = async (username) => {
     allCorrect = false;
     try {
       const match = await fetchFootballData(`matches/${leg.matchId}`);
-      if (match.status !== 'FINISHED') continue;
+      if (!regularTimeKnown(match)) continue;
 
       leg.status = outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'correct' : 'wrong';
       changed = true;
