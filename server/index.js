@@ -203,10 +203,10 @@ const withUserLock = (username, fn) => {
   return result;
 };
 
-// Ensures the wallet record exists, folds any expired or unstaked daily
-// money into points (money only ever becomes points — it never just
-// vanishes), and grants today's allowance (100 * today's match count) if it
-// hasn't been given yet.
+// Ensures the wallet record exists, drops any expired/unstaked daily money
+// (use it within the day or it's gone — it does NOT convert into points),
+// and grants today's allowance (100 * today's match count) if it hasn't
+// been given yet.
 const touchWallet = (wallet, username) => {
   if (!wallet[username])
     wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null, stepPrediction: null };
@@ -220,13 +220,9 @@ const touchWallet = (wallet, username) => {
   delete userData.money;
 
   const now = Date.now();
-  let expiredAmount = 0;
-  userData.dailyGrants = userData.dailyGrants.filter((g) => {
-    const alive = now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS;
-    if (!alive) expiredAmount += g.remaining;
-    return alive;
-  });
-  userData.points += expiredAmount;
+  userData.dailyGrants = userData.dailyGrants.filter(
+    (g) => now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS
+  );
 
   const today = todayUtc();
   const target = allowanceForDay(today);

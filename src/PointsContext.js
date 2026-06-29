@@ -44,8 +44,8 @@ export const PointsProvider = ({ children }) => {
   useEffect(() => { fetchPoints(); }, [fetchPoints]);
 
   // Only the unexpired daily allowance is stakeable money. Points are a
-  // separate, permanent currency: winnings convert into points, and any
-  // daily money left unstaked when it expires also converts into points.
+  // separate, permanent currency earned only from winnings — daily money
+  // left unstaked when it expires is just gone, it does not become points.
   const availableBalance = dailyGrants.reduce((sum, g) => sum + g.remaining, 0);
 
   const submitPrediction = async ({ matchId, homeTeam, awayTeam, outcome, stake }) => {
