@@ -184,6 +184,25 @@ const fetchFootballData = (path, query = '') => {
 const storage = require('./storage');
 const { getUsers, saveUsers, getWallet, saveWallet } = storage;
 
+// Wallet reads/writes are "fetch whole document, mutate, write whole
+// document" — not atomic. Two concurrent requests for the same user (two
+// tabs, a fast double-click, React re-mounting) can both read before either
+// writes, double-granting the daily allowance or losing one request's
+// changes. Serialize all wallet-touching work per username so requests for
+// the same user queue instead of racing; different users still run in
+// parallel.
+const userLocks = new Map();
+const withUserLock = (username, fn) => {
+  const tail = userLocks.get(username) || Promise.resolve();
+  const result = tail.then(fn, fn);
+  const nextTail = result.then(() => {}, () => {});
+  userLocks.set(username, nextTail);
+  nextTail.then(() => {
+    if (userLocks.get(username) === nextTail) userLocks.delete(username);
+  });
+  return result;
+};
+
 // Ensures the wallet record exists, folds any expired or unstaked daily
 // money into points (money only ever becomes points — it never just
 // vanishes), and grants today's allowance (100 * today's match count) if it
@@ -440,9 +459,11 @@ app.post('/api/auth/register', async (req, res) => {
   await saveUsers(users);
 
   // Initialize wallet for new user
-  const wallet = await getWallet();
-  touchWallet(wallet, username);
-  await saveWallet(wallet);
+  await withUserLock(username, async () => {
+    const wallet = await getWallet();
+    touchWallet(wallet, username);
+    await saveWallet(wallet);
+  });
 
   const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, username });
@@ -464,13 +485,16 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ─── Points Routes ───────────────────────────────────────────
 app.get('/api/points', verifyToken, async (req, res) => {
-  await settlePredictions(req.user.username);
-  await settleStepPrediction(req.user.username);
-  await settleChampionPick(req.user.username);
-  await settleAwardPicks(req.user.username);
-  const wallet = await getWallet();
-  const userData = touchWallet(wallet, req.user.username);
-  await saveWallet(wallet);
+  const userData = await withUserLock(req.user.username, async () => {
+    await settlePredictions(req.user.username);
+    await settleStepPrediction(req.user.username);
+    await settleChampionPick(req.user.username);
+    await settleAwardPicks(req.user.username);
+    const wallet = await getWallet();
+    const data = touchWallet(wallet, req.user.username);
+    await saveWallet(wallet);
+    return data;
+  });
   res.json(userData);
 });
 
@@ -506,20 +530,23 @@ app.post('/api/champion-pick', verifyToken, async (req, res) => {
   if (Date.now() >= CHAMPION_LOCK_AT)
     return res.status(400).json({ error: 'Champion picks are locked' });
 
-  const wallet = await getWallet();
-  const userData = touchWallet(wallet, req.user.username);
+  const userData = await withUserLock(req.user.username, async () => {
+    const wallet = await getWallet();
+    const data = touchWallet(wallet, req.user.username);
 
-  userData.championPick = {
-    teamId: team.id,
-    name: team.name,
-    shortName: team.shortName,
-    crest: team.crest,
-    placedAt: new Date().toISOString(),
-    status: 'pending',
-    pointsAwarded: null,
-    settledAt: null,
-  };
-  await saveWallet(wallet);
+    data.championPick = {
+      teamId: team.id,
+      name: team.name,
+      shortName: team.shortName,
+      crest: team.crest,
+      placedAt: new Date().toISOString(),
+      status: 'pending',
+      pointsAwarded: null,
+      settledAt: null,
+    };
+    await saveWallet(wallet);
+    return data;
+  });
 
   res.json({ points: userData.points, championPick: userData.championPick });
 });
@@ -534,20 +561,23 @@ app.post('/api/award-pick', verifyToken, async (req, res) => {
   if (Date.now() >= AWARD_LOCK_AT)
     return res.status(400).json({ error: 'Award picks are locked' });
 
-  const wallet = await getWallet();
-  const userData = touchWallet(wallet, req.user.username);
-  if (!userData.awardPicks) userData.awardPicks = {};
+  const userData = await withUserLock(req.user.username, async () => {
+    const wallet = await getWallet();
+    const data = touchWallet(wallet, req.user.username);
+    if (!data.awardPicks) data.awardPicks = {};
 
-  userData.awardPicks[type] = {
-    playerId,
-    playerName,
-    teamName: teamName || null,
-    placedAt: new Date().toISOString(),
-    status: 'pending',
-    pointsAwarded: null,
-    settledAt: null,
-  };
-  await saveWallet(wallet);
+    data.awardPicks[type] = {
+      playerId,
+      playerName,
+      teamName: teamName || null,
+      placedAt: new Date().toISOString(),
+      status: 'pending',
+      pointsAwarded: null,
+      settledAt: null,
+    };
+    await saveWallet(wallet);
+    return data;
+  });
 
   res.json({ points: userData.points, awardPicks: userData.awardPicks });
 });
@@ -561,46 +591,61 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
 
-  const wallet = await getWallet();
-  const userData = touchWallet(wallet, req.user.username);
+  let errorResponse = null;
+  const result = await withUserLock(req.user.username, async () => {
+    const wallet = await getWallet();
+    const userData = touchWallet(wallet, req.user.username);
 
-  if (userData.predictions.find((p) => p.matchId === matchId))
-    return res.status(400).json({ error: 'You already predicted this match' });
+    if (userData.predictions.find((p) => p.matchId === matchId)) {
+      errorResponse = { status: 400, error: 'You already predicted this match' };
+      return null;
+    }
 
-  if (stake > availableBalance(userData))
-    return res.status(400).json({ error: 'stake exceeds available balance' });
+    if (stake > availableBalance(userData)) {
+      errorResponse = { status: 400, error: 'stake exceeds available balance' };
+      return null;
+    }
 
-  try {
-    const match = await fetchFootballData(`matches/${matchId}`);
-    if (!BETTABLE.includes(match.status))
-      return res.status(400).json({ error: 'Predictions are closed for this match' });
-  } catch {
-    return res.status(502).json({ error: 'Could not verify match status' });
-  }
+    try {
+      const match = await fetchFootballData(`matches/${matchId}`);
+      if (!BETTABLE.includes(match.status)) {
+        errorResponse = { status: 400, error: 'Predictions are closed for this match' };
+        return null;
+      }
+    } catch {
+      errorResponse = { status: 502, error: 'Could not verify match status' };
+      return null;
+    }
 
-  const odds = await fetchOddsFromSheet();
-  const multiplier = getOddsMultiplier(odds, matchId, outcome);
-  if (multiplier == null)
-    return res.status(400).json({ error: 'Odds are not available for this match yet' });
+    const odds = await fetchOddsFromSheet();
+    const multiplier = getOddsMultiplier(odds, matchId, outcome);
+    if (multiplier == null) {
+      errorResponse = { status: 400, error: 'Odds are not available for this match yet' };
+      return null;
+    }
 
-  deductStake(userData, stake);
+    deductStake(userData, stake);
 
-  const prediction = {
-    id: Date.now().toString(),
-    matchId,
-    homeTeam,
-    awayTeam,
-    outcome,
-    stake,
-    status: 'pending',
-    payout: null,
-    placedAt: new Date().toISOString(),
-    settledAt: null,
-  };
-  userData.predictions.unshift(prediction);
-  await saveWallet(wallet);
+    const prediction = {
+      id: Date.now().toString(),
+      matchId,
+      homeTeam,
+      awayTeam,
+      outcome,
+      stake,
+      status: 'pending',
+      payout: null,
+      placedAt: new Date().toISOString(),
+      settledAt: null,
+    };
+    userData.predictions.unshift(prediction);
+    await saveWallet(wallet);
 
-  res.json({ availableBalance: availableBalance(userData), prediction });
+    return { availableBalance: availableBalance(userData), prediction };
+  });
+
+  if (errorResponse) return res.status(errorResponse.status).json({ error: errorResponse.error });
+  res.json(result);
 });
 
 const STEP_MIN_LEGS = 2;
@@ -619,57 +664,74 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
   if (new Set(legMatchIds).size !== legMatchIds.length)
     return res.status(400).json({ error: 'Each match can only appear once in a step' });
 
-  const wallet = await getWallet();
-  const userData = touchWallet(wallet, req.user.username);
+  let errorResponse = null;
+  const result = await withUserLock(req.user.username, async () => {
+    const wallet = await getWallet();
+    const userData = touchWallet(wallet, req.user.username);
 
-  if (userData.stepPrediction && userData.stepPrediction.status === 'pending')
-    return res.status(400).json({ error: 'You already have an open step' });
-
-  const alreadyPicked = new Set(userData.predictions.map((p) => p.matchId));
-  if (legMatchIds.some((id) => alreadyPicked.has(id)))
-    return res.status(400).json({ error: 'You already predicted one of these matches' });
-
-  if (stake > availableBalance(userData))
-    return res.status(400).json({ error: 'stake exceeds available balance' });
-
-  let combinedMultiplier = 1;
-  try {
-    const odds = await fetchOddsFromSheet();
-    for (const leg of legs) {
-      const match = await fetchFootballData(`matches/${leg.matchId}`);
-      if (!BETTABLE.includes(match.status))
-        return res.status(400).json({ error: 'Predictions are closed for one of these matches' });
-      const multiplier = getOddsMultiplier(odds, leg.matchId, leg.outcome);
-      if (multiplier == null)
-        return res.status(400).json({ error: 'Odds are not available for one of these matches yet' });
-      combinedMultiplier *= multiplier;
+    if (userData.stepPrediction && userData.stepPrediction.status === 'pending') {
+      errorResponse = { status: 400, error: 'You already have an open step' };
+      return null;
     }
-  } catch {
-    return res.status(502).json({ error: 'Could not verify match status' });
-  }
 
-  deductStake(userData, stake);
+    const alreadyPicked = new Set(userData.predictions.map((p) => p.matchId));
+    if (legMatchIds.some((id) => alreadyPicked.has(id))) {
+      errorResponse = { status: 400, error: 'You already predicted one of these matches' };
+      return null;
+    }
 
-  const stepPrediction = {
-    id: Date.now().toString(),
-    legs: legs.map((l) => ({
-      matchId: l.matchId,
-      homeTeam: l.homeTeam,
-      awayTeam: l.awayTeam,
-      outcome: l.outcome,
+    if (stake > availableBalance(userData)) {
+      errorResponse = { status: 400, error: 'stake exceeds available balance' };
+      return null;
+    }
+
+    let combinedMultiplier = 1;
+    try {
+      const odds = await fetchOddsFromSheet();
+      for (const leg of legs) {
+        const match = await fetchFootballData(`matches/${leg.matchId}`);
+        if (!BETTABLE.includes(match.status)) {
+          errorResponse = { status: 400, error: 'Predictions are closed for one of these matches' };
+          return null;
+        }
+        const multiplier = getOddsMultiplier(odds, leg.matchId, leg.outcome);
+        if (multiplier == null) {
+          errorResponse = { status: 400, error: 'Odds are not available for one of these matches yet' };
+          return null;
+        }
+        combinedMultiplier *= multiplier;
+      }
+    } catch {
+      errorResponse = { status: 502, error: 'Could not verify match status' };
+      return null;
+    }
+
+    deductStake(userData, stake);
+
+    const stepPrediction = {
+      id: Date.now().toString(),
+      legs: legs.map((l) => ({
+        matchId: l.matchId,
+        homeTeam: l.homeTeam,
+        awayTeam: l.awayTeam,
+        outcome: l.outcome,
+        status: 'pending',
+      })),
+      stake,
+      combinedMultiplier,
       status: 'pending',
-    })),
-    stake,
-    combinedMultiplier,
-    status: 'pending',
-    payout: null,
-    placedAt: new Date().toISOString(),
-    settledAt: null,
-  };
-  userData.stepPrediction = stepPrediction;
-  await saveWallet(wallet);
+      payout: null,
+      placedAt: new Date().toISOString(),
+      settledAt: null,
+    };
+    userData.stepPrediction = stepPrediction;
+    await saveWallet(wallet);
 
-  res.json({ availableBalance: availableBalance(userData), stepPrediction });
+    return { availableBalance: availableBalance(userData), stepPrediction };
+  });
+
+  if (errorResponse) return res.status(errorResponse.status).json({ error: errorResponse.error });
+  res.json(result);
 });
 
 // ─── Football API Proxy ──────────────────────────────────────
