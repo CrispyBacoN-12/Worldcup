@@ -121,8 +121,9 @@ const ALLOWANCE_OVERRIDE = { '2026-06-29': 300 };
 const allowanceForDay = (dateStr) =>
   ALLOWANCE_OVERRIDE[dateStr] ?? DAILY_ALLOWANCE_PER_MATCH * matchCountOn(dateStr);
 
-// Kickoff of the first LAST_32-stage match in src/data/fixtures.json — picks lock here.
-const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
+// Champion + Top Scorer picks reopened — lock at Thai midnight tonight
+// (00:00 of 30 Jun 2026, UTC+7 = 17:00Z on 29 Jun).
+const CHAMPION_LOCK_AT = new Date('2026-06-29T17:00:00Z').getTime();
 // The FINAL-stage match id from src/data/fixtures.json (teams resolve once the bracket completes).
 const FINAL_MATCH_ID = 537390;
 const CHAMPION_BASE_POINTS = 100;
