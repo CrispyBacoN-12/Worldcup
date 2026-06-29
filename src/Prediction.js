@@ -24,8 +24,13 @@ const Prediction = () => {
   } = usePoints();
 
   const todayUtc = new Date().toISOString().slice(0, 10);
+  const tomorrowUtc = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const matches = fixtures
-    .filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === todayUtc)
+    .filter((m) => {
+      if (m.stage === 'GROUP_STAGE') return false;
+      const matchDay = m.utcDate.slice(0, 10);
+      return matchDay === todayUtc || matchDay === tomorrowUtc;
+    })
     .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
 
   const setPick = (matchId, outcome) => {
@@ -147,7 +152,7 @@ const Prediction = () => {
 
   if (matches.length === 0) return (
     <div className="error-box" style={{ background: 'rgba(201,168,76,0.08)', color: 'var(--accent-gold)', borderColor: 'var(--border-gold)' }}>
-      No matches today to predict. Predictions open from the Round of 32 onward.
+      No matches today or tomorrow to predict. Predictions open from the Round of 32 onward.
     </div>
   );
 
