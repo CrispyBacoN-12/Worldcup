@@ -216,15 +216,17 @@ const touchWallet = (wallet, username) => {
       userData.dailyGrants.push({ amount: target, grantedAt: new Date().toISOString(), remaining: target });
     }
     userData.lastAllowanceDate = today;
+    userData.lastAllowanceAmount = target;
   } else {
-    // Already granted today, but the day's allowance was bumped (override) —
-    // top up the difference so everyone reaches the new total for today.
-    const grantedToday = userData.dailyGrants
-      .filter((g) => g.grantedAt.slice(0, 10) === today)
-      .reduce((sum, g) => sum + g.amount, 0);
-    if (target > grantedToday) {
-      const diff = target - grantedToday;
+    // Top up only if today's allowance was raised after it was first granted.
+    // Track the granted total in lastAllowanceAmount (NOT by summing dailyGrants):
+    // spent grants are deleted by deductStake, so summing them would undercount
+    // and re-grant the full allowance every time a player spends to zero.
+    if (userData.lastAllowanceAmount == null) userData.lastAllowanceAmount = target;
+    if (target > userData.lastAllowanceAmount) {
+      const diff = target - userData.lastAllowanceAmount;
       userData.dailyGrants.push({ amount: diff, grantedAt: new Date().toISOString(), remaining: diff });
+      userData.lastAllowanceAmount = target;
     }
   }
 
