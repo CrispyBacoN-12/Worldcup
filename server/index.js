@@ -496,6 +496,19 @@ app.get('/api/points', verifyToken, async (req, res) => {
 
 // ─── Leaderboard Route ────────────────────────────────────────
 app.get('/api/leaderboard', verifyToken, async (req, res) => {
+  // Points only get settled for a user when their own client calls
+  // /api/points, so a player who hasn't opened the app since their match
+  // finished would show stale points here. Settle everyone first.
+  const usernames = Object.keys(await getWallet());
+  for (const username of usernames) {
+    await withUserLock(username, async () => {
+      await settlePredictions(username);
+      await settleStepPrediction(username);
+      await settleChampionPick(username);
+      await settleAwardPicks(username);
+    });
+  }
+
   const wallet = await getWallet();
   const leaderboard = Object.entries(wallet)
     .map(([username, data]) => ({ username, points: data.points || 0 }))
