@@ -114,6 +114,13 @@ const todayUtc = () => new Date().toISOString().slice(0, 10);
 const matchCountOn = (dateStr) =>
   fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === dateStr).length;
 
+// One-off manual overrides for a specific day's total allowance (UTC date ->
+// total coins for that day). Used when the per-match formula doesn't match the
+// matches players can actually predict that day. Days not listed use the formula.
+const ALLOWANCE_OVERRIDE = { '2026-06-29': 300 };
+const allowanceForDay = (dateStr) =>
+  ALLOWANCE_OVERRIDE[dateStr] ?? DAILY_ALLOWANCE_PER_MATCH * matchCountOn(dateStr);
+
 // Kickoff of the first LAST_32-stage match in src/data/fixtures.json — picks lock here.
 const CHAMPION_LOCK_AT = new Date('2026-06-28T19:00:00Z').getTime();
 // The FINAL-stage match id from src/data/fixtures.json (teams resolve once the bracket completes).
@@ -202,12 +209,22 @@ const touchWallet = (wallet, username) => {
   userData.points += expiredAmount;
 
   const today = todayUtc();
+  const target = allowanceForDay(today);
   if (userData.lastAllowanceDate !== today) {
-    const amount = DAILY_ALLOWANCE_PER_MATCH * matchCountOn(today);
-    if (amount > 0) {
-      userData.dailyGrants.push({ amount, grantedAt: new Date().toISOString(), remaining: amount });
+    if (target > 0) {
+      userData.dailyGrants.push({ amount: target, grantedAt: new Date().toISOString(), remaining: target });
     }
     userData.lastAllowanceDate = today;
+  } else {
+    // Already granted today, but the day's allowance was bumped (override) —
+    // top up the difference so everyone reaches the new total for today.
+    const grantedToday = userData.dailyGrants
+      .filter((g) => g.grantedAt.slice(0, 10) === today)
+      .reduce((sum, g) => sum + g.amount, 0);
+    if (target > grantedToday) {
+      const diff = target - grantedToday;
+      userData.dailyGrants.push({ amount: diff, grantedAt: new Date().toISOString(), remaining: diff });
+    }
   }
 
   return userData;
