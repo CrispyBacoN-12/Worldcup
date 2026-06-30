@@ -785,21 +785,6 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
   res.json(result);
 });
 
-// ─── Football API Proxy ──────────────────────────────────────
-app.get('/api/*', async (req, res) => {
-  try {
-    const path = req.params[0];
-    const query = new URLSearchParams(req.query).toString();
-    const data = await fetchFootballData(path, query);
-    res.json(data);
-  } catch (err) {
-    const status = err.response?.status || 500;
-    const message = err.response?.data?.message || err.message;
-    console.error(`✗ Error ${status}: ${message}`);
-    res.status(status).json({ error: message });
-  }
-});
-
 // ─── Admin Wallet Audit ───────────────────────────────────────
 const ADMIN_SECRET = process.env.ADMIN_SECRET;
 
@@ -820,6 +805,21 @@ app.get('/api/admin/wallets', async (req, res) => {
   })).sort((a, b) => b.balance - a.balance || b.points - a.points);
 
   res.json({ count: rows.length, players: rows });
+});
+
+// ─── Football API Proxy ──────────────────────────────────────
+app.get('/api/*', async (req, res) => {
+  try {
+    const path = req.params[0];
+    const query = new URLSearchParams(req.query).toString();
+    const data = await fetchFootballData(path, query);
+    res.json(data);
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.message || err.message;
+    console.error(`✗ Error ${status}: ${message}`);
+    res.status(status).json({ error: message });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
