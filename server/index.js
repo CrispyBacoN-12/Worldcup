@@ -800,6 +800,28 @@ app.get('/api/*', async (req, res) => {
   }
 });
 
+// ─── Admin Wallet Audit ───────────────────────────────────────
+const ADMIN_SECRET = process.env.ADMIN_SECRET;
+
+app.get('/api/admin/wallets', async (req, res) => {
+  if (!ADMIN_SECRET || req.query.secret !== ADMIN_SECRET)
+    return res.status(401).json({ error: 'Unauthorized' });
+
+  const wallet = await getWallet();
+  const rows = Object.entries(wallet).map(([username, d]) => ({
+    username,
+    points: d.points || 0,
+    balance: (d.dailyGrants || []).reduce((s, g) => s + g.remaining, 0),
+    grants: (d.dailyGrants || []).map((g) => ({ remaining: g.remaining, date: g.grantedAt.slice(0, 10) })),
+    staked: [
+      ...(d.predictions || []).filter((p) => p.status === 'pending').map((p) => p.stake || 0),
+      d.stepPrediction?.status === 'pending' ? d.stepPrediction.stake || 0 : 0,
+    ].reduce((s, v) => s + v, 0),
+  })).sort((a, b) => b.balance - a.balance || b.points - a.points);
+
+  res.json({ count: rows.length, players: rows });
+});
+
 const PORT = process.env.PORT || 5000;
 storage.init()
   .then(() => {
