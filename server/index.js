@@ -807,6 +807,24 @@ app.get('/api/admin/wallets', async (req, res) => {
   res.json({ count: rows.length, players: rows });
 });
 
+app.get('/api/admin/wallet/:username', async (req, res) => {
+  if (!ADMIN_SECRET || req.query.secret !== ADMIN_SECRET)
+    return res.status(401).json({ error: 'Unauthorized' });
+
+  const wallet = await getWallet();
+  const d = wallet[req.params.username];
+  if (!d) return res.status(404).json({ error: 'User not found' });
+
+  res.json({
+    username: req.params.username,
+    points: d.points || 0,
+    balance: (d.dailyGrants || []).reduce((s, g) => s + g.remaining, 0),
+    grants: d.dailyGrants || [],
+    predictions: d.predictions || [],
+    stepPrediction: d.stepPrediction || null,
+  });
+});
+
 // ─── Football API Proxy ──────────────────────────────────────
 app.get('/api/*', async (req, res) => {
   try {
