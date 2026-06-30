@@ -109,7 +109,6 @@ const fetchPlayerOddsFromSheet = async () => {
 const FIXTURES_FILE = nodePath.join(__dirname, 'data', 'fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
 const DAILY_ALLOWANCE_PER_MATCH = 100;
-const GRANT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 const matchCountOn = (dateStr) =>
   fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === dateStr).length;
@@ -219,12 +218,13 @@ const touchWallet = (wallet, username) => {
   if (userData.money) userData.points += userData.money;
   delete userData.money;
 
-  const now = Date.now();
-  userData.dailyGrants = userData.dailyGrants.filter(
-    (g) => now - new Date(g.grantedAt).getTime() < GRANT_EXPIRY_MS
-  );
-
   const today = todayUtc();
+  // Drop grants from any previous day — daily money is use-it-or-lose-it
+  // within the same UTC calendar day it was issued. (Old rolling-24h filter
+  // let leftover stack on top of the next day's grant.)
+  userData.dailyGrants = userData.dailyGrants.filter(
+    (g) => g.grantedAt.slice(0, 10) >= today
+  );
   const target = allowanceForDay(today);
   if (userData.lastAllowanceDate !== today) {
     if (target > 0) {
