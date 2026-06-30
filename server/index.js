@@ -117,7 +117,7 @@ const matchCountOn = (dateStr) =>
 // One-off manual overrides for a specific day's total allowance (UTC date ->
 // total coins for that day). Used when the per-match formula doesn't match the
 // matches players can actually predict that day. Days not listed use the formula.
-const ALLOWANCE_OVERRIDE = { '2026-06-29': 300 };
+const ALLOWANCE_OVERRIDE = { '2026-06-29': 300, '2026-06-30': 400 };
 const allowanceForDay = (dateStr) =>
   ALLOWANCE_OVERRIDE[dateStr] ?? DAILY_ALLOWANCE_PER_MATCH * matchCountOn(dateStr);
 
