@@ -114,15 +114,19 @@ const DAILY_ALLOWANCE_PER_MATCH = 100;
 const THAI_OFFSET_MS = 7 * 60 * 60 * 1000;
 const thaiDateOf = (utcDateStr) => new Date(new Date(utcDateStr).getTime() + THAI_OFFSET_MS).toISOString().slice(0, 10);
 const todayThai = () => new Date(Date.now() + THAI_OFFSET_MS).toISOString().slice(0, 10);
+const tomorrowThai = () => new Date(Date.now() + 24 * 60 * 60 * 1000 + THAI_OFFSET_MS).toISOString().slice(0, 10);
 const matchCountOn = (dateStr) =>
   fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && thaiDateOf(m.utcDate) === dateStr).length;
 
-// One-off manual overrides for a specific day's total allowance (UTC date ->
-// total coins for that day). Used when the per-match formula doesn't match the
+// One-off manual overrides for a specific day's total allowance, keyed by the
+// grant day (Thai date). Used when the per-match formula doesn't match the
 // matches players can actually predict that day. Days not listed use the formula.
 const ALLOWANCE_OVERRIDE = { '2026-06-29': 300, '2026-06-30': 400 };
-const allowanceForDay = (dateStr) =>
-  ALLOWANCE_OVERRIDE[dateStr] ?? DAILY_ALLOWANCE_PER_MATCH * matchCountOn(dateStr);
+// The Predict page only opens betting on TOMORROW's matches (see Prediction.js),
+// so the money granted today must be sized off tomorrow's match count, not
+// today's — otherwise the balance doesn't match what's actually bettable.
+const allowanceForDay = (grantDateStr, matchDateStr) =>
+  ALLOWANCE_OVERRIDE[grantDateStr] ?? DAILY_ALLOWANCE_PER_MATCH * matchCountOn(matchDateStr);
 
 // Champion + Top Scorer picks reopened — lock at Thai midnight tonight
 // (00:00 of 30 Jun 2026, UTC+7 = 17:00Z on 29 Jun).
@@ -238,7 +242,7 @@ const touchWallet = (wallet, username) => {
   userData.dailyGrants = userData.dailyGrants.filter(
     (g) => thaiDateOf(g.grantedAt) >= today
   );
-  const target = allowanceForDay(today);
+  const target = allowanceForDay(today, tomorrowThai());
   if (userData.lastAllowanceDate !== today) {
     if (target > 0) {
       userData.dailyGrants.push({ amount: target, grantedAt: new Date().toISOString(), remaining: target });

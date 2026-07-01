@@ -209,9 +209,7 @@ const Prediction = () => {
         {matches.map(match => {
           const pick = picks[match.id];
           const existing = serverPredictions?.find((p) => p.matchId === match.id);
-          const inOpenStep = openSteps.some((step) => step.legs.some((l) => l.matchId === match.id));
           const stepPick = stepPicks[match.id];
-          const stepDisabled = inOpenStep;
 
           return (
             <div key={match.id} className="prediction-card card">
@@ -315,31 +313,25 @@ const Prediction = () => {
               ) : (
                 <div className="bet-section">
                   <div className="bet-section-title">Add to Step — pick a result for this match</div>
-                  {stepDisabled ? (
-                    <div className="detail-bet-prompt">
-                      Already in your open step.
-                    </div>
-                  ) : (
-                    <div className="bet-outcomes">
-                      {outcomeButtons(match).map(({ key, label }) => {
-                        const multiplier = getMultiplier(match.id, key);
-                        const unavailable = multiplier == null;
-                        return (
-                          <button
-                            key={key}
-                            className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
-                            onClick={() => !unavailable && setStepPick(match.id, key)}
-                            disabled={unavailable}
-                          >
-                            <span className="outcome-label">{label}</span>
-                            <span className="outcome-multiplier">
-                              {unavailable ? 'N/A' : `×${multiplier}`}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <div className="bet-outcomes">
+                    {outcomeButtons(match).map(({ key, label }) => {
+                      const multiplier = getMultiplier(match.id, key);
+                      const unavailable = multiplier == null;
+                      return (
+                        <button
+                          key={key}
+                          className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
+                          onClick={() => !unavailable && setStepPick(match.id, key)}
+                          disabled={unavailable}
+                        >
+                          <span className="outcome-label">{label}</span>
+                          <span className="outcome-multiplier">
+                            {unavailable ? 'N/A' : `×${multiplier}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
