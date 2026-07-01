@@ -109,9 +109,13 @@ const fetchPlayerOddsFromSheet = async () => {
 const FIXTURES_FILE = nodePath.join(__dirname, 'data', 'fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURES_FILE, 'utf8'));
 const DAILY_ALLOWANCE_PER_MATCH = 100;
-const todayUtc = () => new Date().toISOString().slice(0, 10);
+// Daily money resets on the Thailand calendar day (UTC+7), not the UTC day —
+// midnight in Thailand is 17:00 UTC the previous day.
+const THAI_OFFSET_MS = 7 * 60 * 60 * 1000;
+const thaiDateOf = (utcDateStr) => new Date(new Date(utcDateStr).getTime() + THAI_OFFSET_MS).toISOString().slice(0, 10);
+const todayThai = () => new Date(Date.now() + THAI_OFFSET_MS).toISOString().slice(0, 10);
 const matchCountOn = (dateStr) =>
-  fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && m.utcDate.slice(0, 10) === dateStr).length;
+  fixtures.filter((m) => m.stage !== 'GROUP_STAGE' && thaiDateOf(m.utcDate) === dateStr).length;
 
 // One-off manual overrides for a specific day's total allowance (UTC date ->
 // total coins for that day). Used when the per-match formula doesn't match the
@@ -208,22 +212,31 @@ const withUserLock = (username, fn) => {
 // been given yet.
 const touchWallet = (wallet, username) => {
   if (!wallet[username])
-    wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null, stepPrediction: null };
+    wallet[username] = { points: 0, predictions: [], dailyGrants: [], lastAllowanceDate: null, stepPredictions: [] };
   const userData = wallet[username];
   if (!userData.dailyGrants) userData.dailyGrants = [];
   if (userData.points == null) userData.points = 0;
-  if (userData.stepPrediction === undefined) userData.stepPrediction = null;
+  if (!userData.stepPredictions) userData.stepPredictions = [];
+
+  // One-time migration from the earlier single-open-step design.
+  if (userData.stepPrediction) {
+    userData.stepPredictions.push(userData.stepPrediction);
+    delete userData.stepPrediction;
+  } else if (userData.stepPrediction === null) {
+    delete userData.stepPrediction;
+  }
 
   // One-time migration from the earlier permanent-money-pool design.
   if (userData.money) userData.points += userData.money;
   delete userData.money;
 
-  const today = todayUtc();
+  const today = todayThai();
   // Drop grants from any previous day — daily money is use-it-or-lose-it
-  // within the same UTC calendar day it was issued. (Old rolling-24h filter
-  // let leftover stack on top of the next day's grant.)
+  // within the same Thailand calendar day it was issued. (Old rolling-24h
+  // filter let leftover stack on top of the next day's grant; the UTC-day
+  // version before this cut grants at 07:00 Thai time instead of midnight.)
   userData.dailyGrants = userData.dailyGrants.filter(
-    (g) => g.grantedAt.slice(0, 10) >= today
+    (g) => thaiDateOf(g.grantedAt) >= today
   );
   const target = allowanceForDay(today);
   if (userData.lastAllowanceDate !== today) {
@@ -363,42 +376,44 @@ const settlePredictions = async (username) => {
 const settleStepPrediction = async (username) => {
   const wallet = await getWallet();
   const userData = touchWallet(wallet, username);
-  const step = userData.stepPrediction;
-  if (!step || step.status !== 'pending') return;
-
-  let anyWrong = false;
-  let allCorrect = true;
   let changed = false;
 
-  for (const leg of step.legs) {
-    if (leg.status !== 'pending') {
-      if (leg.status === 'wrong') anyWrong = true;
-      continue;
-    }
-    allCorrect = false;
-    try {
-      const match = await fetchFootballData(`matches/${leg.matchId}`);
-      if (!regularTimeKnown(match)) continue;
+  for (const step of userData.stepPredictions) {
+    if (step.status !== 'pending') continue;
 
-      leg.status = outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'correct' : 'wrong';
+    let anyWrong = false;
+    let allCorrect = true;
+
+    for (const leg of step.legs) {
+      if (leg.status !== 'pending') {
+        if (leg.status === 'wrong') anyWrong = true;
+        continue;
+      }
+      allCorrect = false;
+      try {
+        const match = await fetchFootballData(`matches/${leg.matchId}`);
+        if (!regularTimeKnown(match)) continue;
+
+        leg.status = outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'correct' : 'wrong';
+        changed = true;
+        if (leg.status === 'wrong') anyWrong = true;
+      } catch {
+        // skip if match fetch fails
+      }
+    }
+
+    if (anyWrong) {
+      step.status = 'wrong';
+      step.payout = 0;
+      step.settledAt = new Date().toISOString();
       changed = true;
-      if (leg.status === 'wrong') anyWrong = true;
-    } catch {
-      // skip if match fetch fails
+    } else if (allCorrect) {
+      step.status = 'correct';
+      step.payout = Math.round(step.stake * step.combinedMultiplier);
+      step.settledAt = new Date().toISOString();
+      userData.points += step.payout;
+      changed = true;
     }
-  }
-
-  if (anyWrong) {
-    step.status = 'wrong';
-    step.payout = 0;
-    step.settledAt = new Date().toISOString();
-    changed = true;
-  } else if (allCorrect) {
-    step.status = 'correct';
-    step.payout = Math.round(step.stake * step.combinedMultiplier);
-    step.settledAt = new Date().toISOString();
-    userData.points += step.payout;
-    changed = true;
   }
 
   if (changed) await saveWallet(wallet);
@@ -720,17 +735,6 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     const wallet = await getWallet();
     const userData = touchWallet(wallet, req.user.username);
 
-    if (userData.stepPrediction && userData.stepPrediction.status === 'pending') {
-      errorResponse = { status: 400, error: 'You already have an open step' };
-      return null;
-    }
-
-    const alreadyPicked = new Set(userData.predictions.map((p) => p.matchId));
-    if (legMatchIds.some((id) => alreadyPicked.has(id))) {
-      errorResponse = { status: 400, error: 'You already predicted one of these matches' };
-      return null;
-    }
-
     if (stake > availableBalance(userData)) {
       errorResponse = { status: 400, error: 'stake exceeds available balance' };
       return null;
@@ -775,7 +779,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
       placedAt: new Date().toISOString(),
       settledAt: null,
     };
-    userData.stepPrediction = stepPrediction;
+    userData.stepPredictions.push(stepPrediction);
     await saveWallet(wallet);
 
     return { availableBalance: availableBalance(userData), stepPrediction };
@@ -800,7 +804,7 @@ app.get('/api/admin/wallets', async (req, res) => {
     grants: (d.dailyGrants || []).map((g) => ({ remaining: g.remaining, date: g.grantedAt.slice(0, 10) })),
     staked: [
       ...(d.predictions || []).filter((p) => p.status === 'pending').map((p) => p.stake || 0),
-      d.stepPrediction?.status === 'pending' ? d.stepPrediction.stake || 0 : 0,
+      ...(d.stepPredictions || []).filter((s) => s.status === 'pending').map((s) => s.stake || 0),
     ].reduce((s, v) => s + v, 0),
   })).sort((a, b) => b.balance - a.balance || b.points - a.points);
 
@@ -821,7 +825,7 @@ app.get('/api/admin/wallet/:username', async (req, res) => {
     balance: (d.dailyGrants || []).reduce((s, g) => s + g.remaining, 0),
     grants: d.dailyGrants || [],
     predictions: d.predictions || [],
-    stepPrediction: d.stepPrediction || null,
+    stepPredictions: d.stepPredictions || [],
   });
 });
 

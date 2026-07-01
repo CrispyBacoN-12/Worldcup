@@ -19,7 +19,7 @@ const Prediction = () => {
   const [stepError, setStepError] = useState('');
 
   const {
-    points, dailyGrants, predictions: serverPredictions, stepPrediction,
+    points, dailyGrants, predictions: serverPredictions, stepPredictions,
     submitPrediction, submitStepPrediction, availableBalance, getMultiplier,
   } = usePoints();
 
@@ -72,7 +72,8 @@ const Prediction = () => {
     }
   };
 
-  const hasOpenStep = stepPrediction && stepPrediction.status === 'pending';
+  const openSteps = stepPredictions.filter((s) => s.status === 'pending');
+  const hasOpenStep = openSteps.length > 0;
 
   const setStepPick = (matchId, outcome) => {
     setStepPicks(prev => {
@@ -188,29 +189,29 @@ const Prediction = () => {
         </button>
       </div>
 
-      {mode === 'step' && hasOpenStep && (
-        <div className="existing-bet" style={{ marginBottom: '1rem' }}>
+      {mode === 'step' && hasOpenStep && openSteps.map((step) => (
+        <div key={step.id} className="existing-bet" style={{ marginBottom: '1rem' }}>
           <span className="existing-bet-label">Your Open Step</span>
           <div className="existing-bet-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
-            {stepPrediction.legs.map((leg) => (
+            {step.legs.map((leg) => (
               <span key={leg.matchId} className="existing-pick">
                 {leg.homeTeam} vs {leg.awayTeam} — {outcomeLabel({ homeTeam: { name: leg.homeTeam }, awayTeam: { name: leg.awayTeam } }, leg.outcome)}
               </span>
             ))}
             <span className="existing-detail">
-              Staked ${stepPrediction.stake} × {stepPrediction.combinedMultiplier} — Waiting for all matches to finish…
+              Staked ${step.stake} × {step.combinedMultiplier} — Waiting for all matches to finish…
             </span>
           </div>
         </div>
-      )}
+      ))}
 
       <div className="prediction-list">
         {matches.map(match => {
           const pick = picks[match.id];
           const existing = serverPredictions?.find((p) => p.matchId === match.id);
-          const inOpenStep = hasOpenStep && stepPrediction.legs.some((l) => l.matchId === match.id);
+          const inOpenStep = openSteps.some((step) => step.legs.some((l) => l.matchId === match.id));
           const stepPick = stepPicks[match.id];
-          const stepDisabled = !!existing || inOpenStep;
+          const stepDisabled = inOpenStep;
 
           return (
             <div key={match.id} className="prediction-card card">
@@ -316,7 +317,7 @@ const Prediction = () => {
                   <div className="bet-section-title">Add to Step — pick a result for this match</div>
                   {stepDisabled ? (
                     <div className="detail-bet-prompt">
-                      {existing ? 'Already predicted individually.' : 'Already in your open step.'}
+                      Already in your open step.
                     </div>
                   ) : (
                     <div className="bet-outcomes">

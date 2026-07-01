@@ -26,14 +26,14 @@ const StatusBadge = ({ status }) => {
 const StepLegLabel = (leg) => pickLabel(leg);
 
 const PredictionHistory = () => {
-  const { points, availableBalance, predictions, stepPrediction, fetchPoints } = usePoints();
+  const { points, availableBalance, predictions, stepPredictions, fetchPoints } = usePoints();
 
   useEffect(() => {
     fetchPoints();
   }, [fetchPoints]);
 
-  const stepCorrect = stepPrediction?.status === 'correct' ? 1 : 0;
-  const stepWrong = stepPrediction?.status === 'wrong' ? 1 : 0;
+  const stepCorrect = stepPredictions.filter((s) => s.status === 'correct').length;
+  const stepWrong = stepPredictions.filter((s) => s.status === 'wrong').length;
   const correct = predictions.filter((p) => p.status === 'correct').length + stepCorrect;
   const wrong = predictions.filter((p) => p.status === 'wrong').length + stepWrong;
 
@@ -65,14 +65,14 @@ const PredictionHistory = () => {
         </div>
       </div>
 
-      {predictions.length === 0 && !stepPrediction ? (
+      {predictions.length === 0 && stepPredictions.length === 0 ? (
         <div className="empty-state" style={{ marginTop: '2rem' }}>
           No predictions yet. Go to Predict to make your first pick!
         </div>
       ) : (
         <div className="bets-list">
-          {stepPrediction && (
-            <div className={`bet-card card ${stepPrediction.status}`}>
+          {stepPredictions.map((stepPrediction) => (
+            <div key={stepPrediction.id} className={`bet-card card ${stepPrediction.status}`}>
               <div className="bet-card-header">
                 <div className="bet-match">
                   <span className="bet-home">Step ({stepPrediction.legs.length} matches)</span>
@@ -110,7 +110,7 @@ const PredictionHistory = () => {
                 })}
               </div>
             </div>
-          )}
+          ))}
 
           {predictions.map((prediction) => (
             <div key={prediction.id} className={`bet-card card ${prediction.status}`}>

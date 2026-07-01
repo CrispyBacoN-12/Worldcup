@@ -10,7 +10,7 @@ export const PointsProvider = ({ children }) => {
   const [points, setPoints] = useState(null);
   const [dailyGrants, setDailyGrants] = useState([]);
   const [predictions, setPredictions] = useState([]);
-  const [stepPrediction, setStepPrediction] = useState(null);
+  const [stepPredictions, setStepPredictions] = useState([]);
   const [championPick, setChampionPick] = useState(null);
   const [awardPicks, setAwardPicks] = useState({});
   const [odds, setOdds] = useState({});
@@ -35,7 +35,7 @@ export const PointsProvider = ({ children }) => {
       setPoints(res.data.points);
       setDailyGrants(res.data.dailyGrants ?? []);
       setPredictions(res.data.predictions);
-      setStepPrediction(res.data.stepPrediction ?? null);
+      setStepPredictions(res.data.stepPredictions ?? []);
       setChampionPick(res.data.championPick ?? null);
       setAwardPicks(res.data.awardPicks ?? {});
     } catch {}
@@ -65,7 +65,7 @@ export const PointsProvider = ({ children }) => {
       { legs, stake },
       { headers: { Authorization: `Bearer ${user.token}` } }
     );
-    setStepPrediction(res.data.stepPrediction);
+    setStepPredictions((prev) => [res.data.stepPrediction, ...prev]);
     await fetchPoints();
     return res.data;
   };
@@ -89,7 +89,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPrediction, championPick, awardPicks, getMultiplier, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, getMultiplier, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
       {children}
     </PointsContext.Provider>
   );
