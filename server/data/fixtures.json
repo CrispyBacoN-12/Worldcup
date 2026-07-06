@@ -2870,16 +2870,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 765,
+      "name": "Portugal",
+      "shortName": "Portugal",
+      "crest": "https://crests.football-data.org/765.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 760,
+      "name": "Spain",
+      "shortName": "Spain",
+      "crest": "https://crests.football-data.org/760.svg"
     }
   },
   {
@@ -2932,16 +2932,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 762,
+      "name": "Argentina",
+      "shortName": "Argentina",
+      "crest": "https://crests.football-data.org/762.png"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 825,
+      "name": "Egypt",
+      "shortName": "Egypt",
+      "crest": "https://crests.football-data.org/825.svg"
     }
   },
   {
@@ -2963,16 +2963,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 788,
+      "name": "Switzerland",
+      "shortName": "Switzerland",
+      "crest": "https://crests.football-data.org/788.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 818,
+      "name": "Colombia",
+      "shortName": "Colombia",
+      "crest": "https://crests.football-data.org/818.svg"
     }
   },
   {
@@ -2994,16 +2994,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 773,
+      "name": "France",
+      "shortName": "France",
+      "crest": "https://crests.football-data.org/773.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 815,
+      "name": "Morocco",
+      "shortName": "Morocco",
+      "crest": "https://crests.football-data.org/morocco.svg"
     }
   },
   {
@@ -3056,16 +3056,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 8872,
+      "name": "Norway",
+      "shortName": "Norway",
+      "crest": "https://crests.football-data.org/813.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 770,
+      "name": "England",
+      "shortName": "England",
+      "crest": "https://crests.football-data.org/770.svg"
     }
   },
   {
