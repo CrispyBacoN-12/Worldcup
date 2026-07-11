@@ -14,6 +14,7 @@ export const PointsProvider = ({ children }) => {
   const [championPick, setChampionPick] = useState(null);
   const [awardPicks, setAwardPicks] = useState({});
   const [odds, setOdds] = useState({});
+  const [pointsError, setPointsError] = useState(null);
 
   useEffect(() => {
     axios.get(`${BASE}/api/odds`)
@@ -38,7 +39,15 @@ export const PointsProvider = ({ children }) => {
       setStepPredictions(res.data.stepPredictions ?? []);
       setChampionPick(res.data.championPick ?? null);
       setAwardPicks(res.data.awardPicks ?? {});
-    } catch {}
+      setPointsError(null);
+    } catch (err) {
+      console.error('Failed to load points/balance:', err);
+      setPointsError(
+        err.response?.status === 401
+          ? 'เซสชันหมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่'
+          : 'โหลดข้อมูลยอดเงินไม่สำเร็จ กรุณาลองรีเฟรชหน้านี้'
+      );
+    }
   }, [user]);
 
   useEffect(() => { fetchPoints(); }, [fetchPoints]);
@@ -89,7 +98,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, getMultiplier, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, pointsError, getMultiplier, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
       {children}
     </PointsContext.Provider>
   );

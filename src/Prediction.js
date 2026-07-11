@@ -20,7 +20,7 @@ const Prediction = () => {
 
   const {
     points, dailyGrants, predictions: serverPredictions, stepPredictions,
-    submitPrediction, submitStepPrediction, availableBalance, getMultiplier,
+    submitPrediction, submitStepPrediction, availableBalance, getMultiplier, pointsError,
   } = usePoints();
 
   // Predictions open for tomorrow's matches, by Thailand calendar date (UTC+7).
@@ -161,6 +161,12 @@ const Prediction = () => {
         <h1 className="page-title">PREDICT</h1>
         <p className="page-subtitle">FIFA World Cup 2026 — Make your predictions</p>
       </div>
+
+      {pointsError && (
+        <div className="balance-bar" style={{ background: '#5a1a1a', color: '#ffb4b4' }}>
+          {pointsError}
+        </div>
+      )}
 
       {points !== null && (
         <div className="balance-bar">
