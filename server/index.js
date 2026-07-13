@@ -24,20 +24,21 @@ const championTeams = JSON.parse(fs.readFileSync(CHAMPION_TEAMS_FILE, 'utf8'));
 const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
 
 const ODDS_SHEET_CSV_URL = process.env.ODDS_SHEET_CSV_URL;
+const LINES_SHEET_CSV_URL = process.env.LINES_SHEET_CSV_URL;
 const ODDS_CACHE_TTL_MS = 60 * 1000;
 const MARKETS = {
   moneyline: ['home', 'draw', 'away', '1X', '12', 'X2'],
   total: ['over', 'under'],
   handicap: ['home', 'away'],
 };
-let oddsCache = { data: {}, fetchedAt: 0 };
+let moneylineCache = { data: {}, fetchedAt: 0 };
+let linesCache = { data: {}, fetchedAt: 0 };
 
-// One row per match: matchId, home, draw, away, 1X, 12, X2 (moneyline),
-// totalLine, totalOver, totalUnder, handicapLine, handicapHome, handicapAway
-// (header required, columns located by name). Blank/non-numeric cells mean
-// "no odds for that outcome" — they're simply omitted from the parsed
-// result. total/handicap are all-or-nothing per match: a line with no
-// price (or a price with no line) doesn't produce a usable market.
+// One row per match: matchId, home, draw, away, 1X, 12, X2 (header required,
+// columns located by name). Blank/non-numeric cells mean "no odds for that
+// outcome" — they're simply omitted from the parsed result. total/handicap
+// lines live in a separate sheet (see parseLinesCsv) since a match can offer
+// more than one line per market at once.
 const parseOddsCsv = (csvText) => {
   const lines = csvText.trim().split(/\r?\n/);
   const header = lines[0].split(',').map((h) => h.trim());
@@ -62,38 +63,109 @@ const parseOddsCsv = (csvText) => {
       if (value !== undefined) moneyline[outcome] = value;
     }
 
-    const entry = { moneyline };
-
-    const totalLine = num('totalLine'), totalOver = num('totalOver'), totalUnder = num('totalUnder');
-    if (totalLine !== undefined && totalOver !== undefined && totalUnder !== undefined) {
-      entry.total = { line: totalLine, over: totalOver, under: totalUnder };
-    }
-
-    const handicapLine = num('handicapLine'), handicapHome = num('handicapHome'), handicapAway = num('handicapAway');
-    if (handicapLine !== undefined && handicapHome !== undefined && handicapAway !== undefined) {
-      entry.handicap = { line: handicapLine, home: handicapHome, away: handicapAway };
-    }
-
-    result[matchId] = entry;
+    result[matchId] = { moneyline };
   }
   return result;
 };
 
-const fetchOddsFromSheet = async () => {
-  if (Date.now() - oddsCache.fetchedAt < ODDS_CACHE_TTL_MS) return oddsCache.data;
+const fetchMoneylineFromSheet = async () => {
+  if (Date.now() - moneylineCache.fetchedAt < ODDS_CACHE_TTL_MS) return moneylineCache.data;
   try {
     const res = await axios.get(ODDS_SHEET_CSV_URL);
-    oddsCache = { data: parseOddsCsv(res.data), fetchedAt: Date.now() };
+    moneylineCache = { data: parseOddsCsv(res.data), fetchedAt: Date.now() };
   } catch {
     // Keep serving whatever was cached before (or {} if nothing has ever
     // succeeded) — a sheet hiccup shouldn't wipe out odds that were working.
-    oddsCache = { ...oddsCache, fetchedAt: Date.now() };
+    moneylineCache = { ...moneylineCache, fetchedAt: Date.now() };
   }
-  return oddsCache.data;
+  return moneylineCache.data;
 };
 
-const getOddsMultiplier = (odds, matchId, market, outcome) => odds[matchId]?.[market]?.[outcome];
-const getOddsLine = (odds, matchId, market) => odds[matchId]?.[market]?.line;
+// One row per (matchId, market, line) offer: matchId, market, line, priceA,
+// priceB. `market` is 'total' or 'handicap'; priceA is the over/home price,
+// priceB is the under/away price. A match can have any number of rows per
+// market — that's how multiple simultaneous lines (e.g. Total 2.5 AND Total
+// 3.5) get offered at once. Same all-or-nothing convention as moneyline: a
+// row missing line/priceA/priceB is skipped entirely. If the sheet has two
+// rows with the same (matchId, market, line), the later row wins.
+const parseLinesCsv = (csvText) => {
+  const lines = csvText.trim().split(/\r?\n/);
+  const header = lines[0].split(',').map((h) => h.trim());
+  const byKey = new Map();
+  for (const rawLine of lines.slice(1)) {
+    if (!rawLine.trim()) continue;
+    const cells = rawLine.split(',').map((c) => c.trim());
+    const row = {};
+    header.forEach((col, i) => { row[col] = cells[i]; });
+
+    const matchId = row.matchId;
+    const market = row.market;
+    if (!matchId || (market !== 'total' && market !== 'handicap')) continue;
+
+    const num = (key) => {
+      const raw = row[key];
+      const value = Number(raw);
+      return raw !== undefined && raw !== '' && !Number.isNaN(value) ? value : undefined;
+    };
+    const line = num('line'), priceA = num('priceA'), priceB = num('priceB');
+    if (line === undefined || priceA === undefined || priceB === undefined) continue;
+
+    const entry = market === 'total'
+      ? { line, over: priceA, under: priceB }
+      : { line, home: priceA, away: priceB };
+    byKey.set(`${matchId}|${market}|${line}`, { matchId, market, entry });
+  }
+
+  const result = {};
+  for (const { matchId, market, entry } of byKey.values()) {
+    if (!result[matchId]) result[matchId] = { total: [], handicap: [] };
+    result[matchId][market].push(entry);
+  }
+  return result;
+};
+
+const fetchLinesFromSheet = async () => {
+  if (!LINES_SHEET_CSV_URL) return {};
+  if (Date.now() - linesCache.fetchedAt < ODDS_CACHE_TTL_MS) return linesCache.data;
+  try {
+    const res = await axios.get(LINES_SHEET_CSV_URL);
+    linesCache = { data: parseLinesCsv(res.data), fetchedAt: Date.now() };
+  } catch {
+    linesCache = { ...linesCache, fetchedAt: Date.now() };
+  }
+  return linesCache.data;
+};
+
+// Combined view served to callers: moneyline (single object) from the main
+// sheet, total/handicap (arrays of line-offers, possibly empty) from the
+// lines sheet.
+const fetchOddsFromSheet = async () => {
+  const [moneyline, lines] = await Promise.all([fetchMoneylineFromSheet(), fetchLinesFromSheet()]);
+  const matchIds = new Set([...Object.keys(moneyline), ...Object.keys(lines)]);
+  const result = {};
+  for (const matchId of matchIds) {
+    result[matchId] = {
+      moneyline: moneyline[matchId]?.moneyline ?? {},
+      total: lines[matchId]?.total ?? [],
+      handicap: lines[matchId]?.handicap ?? [],
+    };
+  }
+  return result;
+};
+
+// For moneyline, the market data is a flat { outcome: multiplier } object
+// and `line` is ignored. For total/handicap it's an array of line-offers —
+// this finds the one matching `line` (the value pinned on a prediction/leg,
+// or the one a client is requesting at placement time).
+const getOddsMultiplier = (odds, matchId, market, outcome, line) => {
+  const marketData = odds[matchId]?.[market];
+  if (market === 'moneyline') return marketData?.[outcome];
+  return marketData?.find((entry) => entry.line === line)?.[outcome];
+};
+
+// All currently-offered lines for a match's total/handicap market (empty
+// array if none). Used by the client to render one row per available line.
+const getOddsLines = (odds, matchId, market) => odds[matchId]?.[market] ?? [];
 
 const PLAYER_ODDS_SHEET_CSV_URL = process.env.PLAYER_ODDS_SHEET_CSV_URL;
 let playerOddsCache = { data: {}, fetchedAt: 0 };
@@ -404,7 +476,7 @@ const settlePredictions = async (username) => {
       // back to the multiplier of 1 (no winnings beyond the stake) rather
       // than letting a missing row turn a real win into a NaN payout.
       const odds = await fetchOddsFromSheet();
-      const multiplier = getOddsMultiplier(odds, prediction.matchId, market, prediction.outcome) ?? 1;
+      const multiplier = getOddsMultiplier(odds, prediction.matchId, market, prediction.outcome, prediction.line) ?? 1;
       prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
       prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
@@ -706,7 +778,14 @@ const BETTABLE = ['SCHEDULED', 'TIMED'];
 app.post('/api/predictions', verifyToken, async (req, res) => {
   const { matchId, homeTeam, awayTeam, outcome, stake } = req.body;
   const market = req.body.market ?? 'moneyline';
+  // total/handicap can offer several simultaneous lines per match, so the
+  // client picks which one it's betting on; the multiplier lookup below
+  // (which requires an exact line match) is what actually validates it
+  // against the sheet — a made-up line just fails that lookup.
+  const line = market === 'moneyline' ? null : req.body.line;
   if (!matchId || !MARKETS[market]?.includes(outcome))
+    return res.status(400).json({ error: 'Missing or invalid fields' });
+  if (market !== 'moneyline' && typeof line !== 'number')
     return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
@@ -716,11 +795,14 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     const wallet = await getWallet();
     const userData = touchWallet(wallet, req.user.username);
 
-    // One prediction per (match, market) — a player can hold a moneyline
-    // pick and a total pick and a handicap pick on the same match at once,
-    // just not two picks within the same market.
-    if (userData.predictions.find((p) => p.matchId === matchId && (p.market ?? 'moneyline') === market)) {
-      errorResponse = { status: 400, error: 'You already predicted this market for this match' };
+    // One prediction per (match, market, line) — a player can hold a
+    // moneyline pick, a total pick, and a handicap pick on the same match at
+    // once, and even multiple lines within the same market (e.g. Total 2.5
+    // and Total 3.5), just not two picks on the exact same line.
+    if (userData.predictions.find((p) =>
+      p.matchId === matchId && (p.market ?? 'moneyline') === market && (p.line ?? null) === line
+    )) {
+      errorResponse = { status: 400, error: 'You already predicted this line for this match' };
       return null;
     }
 
@@ -741,7 +823,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     }
 
     const odds = await fetchOddsFromSheet();
-    const multiplier = getOddsMultiplier(odds, matchId, market, outcome);
+    const multiplier = getOddsMultiplier(odds, matchId, market, outcome, line);
     if (multiplier == null) {
       errorResponse = { status: 400, error: 'Odds are not available for this match yet' };
       return null;
@@ -757,8 +839,9 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
       market,
       outcome,
       // Pinned at placement — see marketOutcomeWins for why this can't float
-      // like the payout multiplier does.
-      line: market === 'moneyline' ? null : getOddsLine(odds, matchId, market),
+      // like the payout multiplier does. Already validated above (the
+      // multiplier lookup only succeeds for a line the sheet actually offers).
+      line,
       stake,
       status: 'pending',
       payout: null,
@@ -784,6 +867,8 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     return res.status(400).json({ error: `Step must have ${STEP_MIN_LEGS}-${STEP_MAX_LEGS} matches` });
   if (!legs.every((l) => l && l.matchId && MARKETS[l.market ?? 'moneyline']?.includes(l.outcome) && l.homeTeam && l.awayTeam))
     return res.status(400).json({ error: 'Missing or invalid fields' });
+  if (!legs.every((l) => (l.market ?? 'moneyline') === 'moneyline' || typeof l.line === 'number'))
+    return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
 
@@ -802,23 +887,22 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     }
 
     let combinedMultiplier = 1;
-    const legLines = {};
     try {
       const odds = await fetchOddsFromSheet();
       for (const leg of legs) {
         const legMarket = leg.market ?? 'moneyline';
+        const legLine = legMarket === 'moneyline' ? null : leg.line;
         const match = await fetchFootballData(`matches/${leg.matchId}`);
         if (!BETTABLE.includes(match.status)) {
           errorResponse = { status: 400, error: 'Predictions are closed for one of these matches' };
           return null;
         }
-        const multiplier = getOddsMultiplier(odds, leg.matchId, legMarket, leg.outcome);
+        const multiplier = getOddsMultiplier(odds, leg.matchId, legMarket, leg.outcome, legLine);
         if (multiplier == null) {
           errorResponse = { status: 400, error: 'Odds are not available for one of these matches yet' };
           return null;
         }
         combinedMultiplier *= multiplier;
-        if (legMarket !== 'moneyline') legLines[leg.matchId] = getOddsLine(odds, leg.matchId, legMarket);
       }
     } catch {
       errorResponse = { status: 502, error: 'Could not verify match status' };
@@ -835,8 +919,10 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
         awayTeam: l.awayTeam,
         market: l.market ?? 'moneyline',
         outcome: l.outcome,
-        // Pinned at placement, same reasoning as single predictions.
-        line: (l.market ?? 'moneyline') === 'moneyline' ? null : legLines[l.matchId],
+        // Pinned at placement, same reasoning as single predictions — already
+        // validated above (the multiplier lookup only succeeds for a line
+        // the sheet actually offers).
+        line: (l.market ?? 'moneyline') === 'moneyline' ? null : l.line,
         status: 'pending',
       })),
       stake,

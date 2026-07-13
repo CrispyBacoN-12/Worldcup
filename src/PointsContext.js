@@ -22,13 +22,19 @@ export const PointsProvider = ({ children }) => {
       .catch(() => {});
   }, []);
 
+  // moneyline is a flat object; total/handicap are arrays of line-offers,
+  // so those need `line` to pick which offer's price to read.
   const getMultiplier = useCallback(
-    (matchId, market, outcome) => odds[matchId]?.[market]?.[outcome],
+    (matchId, market, outcome, line) => {
+      const marketData = odds[matchId]?.[market];
+      if (market === 'moneyline') return marketData?.[outcome];
+      return marketData?.find((entry) => entry.line === line)?.[outcome];
+    },
     [odds]
   );
 
-  const getLine = useCallback(
-    (matchId, market) => odds[matchId]?.[market]?.line,
+  const getLines = useCallback(
+    (matchId, market) => odds[matchId]?.[market] ?? [],
     [odds]
   );
 
@@ -62,10 +68,10 @@ export const PointsProvider = ({ children }) => {
   // left unstaked when it expires is just gone, it does not become points.
   const availableBalance = dailyGrants.reduce((sum, g) => sum + g.remaining, 0);
 
-  const submitPrediction = async ({ matchId, homeTeam, awayTeam, market, outcome, stake }) => {
+  const submitPrediction = async ({ matchId, homeTeam, awayTeam, market, outcome, line, stake }) => {
     const res = await axios.post(
       `${BASE}/api/predictions`,
-      { matchId, homeTeam, awayTeam, market, outcome, stake },
+      { matchId, homeTeam, awayTeam, market, outcome, line, stake },
       { headers: { Authorization: `Bearer ${user.token}` } }
     );
     setPredictions((prev) => [res.data.prediction, ...prev]);
@@ -103,7 +109,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, pointsError, getMultiplier, getLine, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, pointsError, getMultiplier, getLines, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
       {children}
     </PointsContext.Provider>
   );

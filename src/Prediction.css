@@ -169,6 +169,24 @@
   margin-bottom: 0.75rem;
 }
 
+/* LINE ROW (one per line-offer within a total/handicap market) */
+.bet-line-row {
+  margin-bottom: 0.75rem;
+}
+
+.bet-line-row:last-child {
+  margin-bottom: 0;
+}
+
+.bet-line-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
 /* OUTCOME BUTTONS */
 .bet-outcomes {
   display: grid;
