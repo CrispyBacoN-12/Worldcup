@@ -2,8 +2,17 @@ import React, { useEffect } from 'react';
 import { usePoints } from './PointsContext';
 import './PredictionHistory.css';
 
+const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+
 const pickLabel = (prediction) => {
-  const { outcome, homeTeam, awayTeam } = prediction;
+  const { outcome, homeTeam, awayTeam, line } = prediction;
+  const market = prediction.market ?? 'moneyline';
+  if (market === 'total') return outcome === 'over' ? `Over ${line}` : `Under ${line}`;
+  if (market === 'handicap') {
+    const team = outcome === 'home' ? homeTeam : awayTeam;
+    const teamLine = outcome === 'home' ? line : -line;
+    return `${team} ${signed(teamLine)}`;
+  }
   if (outcome === 'home') return homeTeam;
   if (outcome === 'away') return awayTeam;
   if (outcome === 'draw') return 'Draw';

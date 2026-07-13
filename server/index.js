@@ -25,12 +25,19 @@ const championTeamsById = new Map(championTeams.map((t) => [t.id, t]));
 
 const ODDS_SHEET_CSV_URL = process.env.ODDS_SHEET_CSV_URL;
 const ODDS_CACHE_TTL_MS = 60 * 1000;
-const OUTCOMES = ['home', 'draw', 'away', '1X', '12', 'X2'];
+const MARKETS = {
+  moneyline: ['home', 'draw', 'away', '1X', '12', 'X2'],
+  total: ['over', 'under'],
+  handicap: ['home', 'away'],
+};
 let oddsCache = { data: {}, fetchedAt: 0 };
 
-// One row per match: matchId, home, draw, away, 1X, 12, X2 (header required,
-// columns located by name). Blank/non-numeric cells mean "no odds for that
-// outcome" — they're simply omitted from the parsed result.
+// One row per match: matchId, home, draw, away, 1X, 12, X2 (moneyline),
+// totalLine, totalOver, totalUnder, handicapLine, handicapHome, handicapAway
+// (header required, columns located by name). Blank/non-numeric cells mean
+// "no odds for that outcome" — they're simply omitted from the parsed
+// result. total/handicap are all-or-nothing per match: a line with no
+// price (or a price with no line) doesn't produce a usable market.
 const parseOddsCsv = (csvText) => {
   const lines = csvText.trim().split(/\r?\n/);
   const header = lines[0].split(',').map((h) => h.trim());
@@ -43,15 +50,31 @@ const parseOddsCsv = (csvText) => {
     const matchId = row.matchId;
     if (!matchId) continue;
 
-    const outcomes = {};
-    for (const outcome of OUTCOMES) {
-      const raw = row[outcome];
+    const num = (key) => {
+      const raw = row[key];
       const value = Number(raw);
-      if (raw !== undefined && raw !== '' && !Number.isNaN(value)) {
-        outcomes[outcome] = value;
-      }
+      return raw !== undefined && raw !== '' && !Number.isNaN(value) ? value : undefined;
+    };
+
+    const moneyline = {};
+    for (const outcome of MARKETS.moneyline) {
+      const value = num(outcome);
+      if (value !== undefined) moneyline[outcome] = value;
     }
-    result[matchId] = outcomes;
+
+    const entry = { moneyline };
+
+    const totalLine = num('totalLine'), totalOver = num('totalOver'), totalUnder = num('totalUnder');
+    if (totalLine !== undefined && totalOver !== undefined && totalUnder !== undefined) {
+      entry.total = { line: totalLine, over: totalOver, under: totalUnder };
+    }
+
+    const handicapLine = num('handicapLine'), handicapHome = num('handicapHome'), handicapAway = num('handicapAway');
+    if (handicapLine !== undefined && handicapHome !== undefined && handicapAway !== undefined) {
+      entry.handicap = { line: handicapLine, home: handicapHome, away: handicapAway };
+    }
+
+    result[matchId] = entry;
   }
   return result;
 };
@@ -69,7 +92,8 @@ const fetchOddsFromSheet = async () => {
   return oddsCache.data;
 };
 
-const getOddsMultiplier = (odds, matchId, outcome) => odds[matchId]?.[outcome];
+const getOddsMultiplier = (odds, matchId, market, outcome) => odds[matchId]?.[market]?.[outcome];
+const getOddsLine = (odds, matchId, market) => odds[matchId]?.[market]?.line;
 
 const PLAYER_ODDS_SHEET_CSV_URL = process.env.PLAYER_ODDS_SHEET_CSV_URL;
 let playerOddsCache = { data: {}, fetchedAt: 0 };
@@ -304,6 +328,24 @@ const outcomeWins = (outcome, winner) => {
   return false;
 };
 
+// Regular-time goal-based win check for total/handicap markets. `regular`
+// is regularTimeResult(match) — { home, away } — already computed by the
+// caller before this is invoked. `line` is the value stored on the
+// prediction/leg at placement time (see the placement routes), not
+// re-read from the sheet — the line defines the bet itself, so it can't be
+// allowed to drift the way the payout multiplier is (see settlePredictions).
+const marketOutcomeWins = (market, outcome, line, regular) => {
+  if (market === 'total') {
+    const totalGoals = regular.home + regular.away;
+    return outcome === 'over' ? totalGoals > line : totalGoals < line;
+  }
+  if (market === 'handicap') {
+    const adjustedHome = regular.home + line;
+    return outcome === 'home' ? adjustedHome > regular.away : adjustedHome < regular.away;
+  }
+  return false;
+};
+
 // Predictions bet on the regular-time (90 min) result, not the match's
 // overall winner — a knockout match that's drawn after 90 then decided by
 // extra time/penalties should still settle outcome bets off the 90-min
@@ -353,13 +395,16 @@ const settlePredictions = async (username) => {
       const match = await fetchFootballData(`matches/${prediction.matchId}`);
       if (!regularTimeKnown(match)) continue;
 
-      const correct = outcomeWins(prediction.outcome, regularTimeWinner(match));
+      const market = prediction.market ?? 'moneyline';
+      const correct = market === 'moneyline'
+        ? outcomeWins(prediction.outcome, regularTimeWinner(match))
+        : marketOutcomeWins(market, prediction.outcome, prediction.line, regularTimeResult(match));
 
       // Odds can change in the sheet between placement and settlement; fall
       // back to the multiplier of 1 (no winnings beyond the stake) rather
       // than letting a missing row turn a real win into a NaN payout.
       const odds = await fetchOddsFromSheet();
-      const multiplier = getOddsMultiplier(odds, prediction.matchId, prediction.outcome) ?? 1;
+      const multiplier = getOddsMultiplier(odds, prediction.matchId, market, prediction.outcome) ?? 1;
       prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
       prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
@@ -398,7 +443,11 @@ const settleStepPrediction = async (username) => {
         const match = await fetchFootballData(`matches/${leg.matchId}`);
         if (!regularTimeKnown(match)) continue;
 
-        leg.status = outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'correct' : 'wrong';
+        const legMarket = leg.market ?? 'moneyline';
+        const legCorrect = legMarket === 'moneyline'
+          ? outcomeWins(leg.outcome, regularTimeWinner(match))
+          : marketOutcomeWins(legMarket, leg.outcome, leg.line, regularTimeResult(match));
+        leg.status = legCorrect ? 'correct' : 'wrong';
         changed = true;
         if (leg.status === 'wrong') anyWrong = true;
       } catch {
@@ -656,7 +705,8 @@ const BETTABLE = ['SCHEDULED', 'TIMED'];
 
 app.post('/api/predictions', verifyToken, async (req, res) => {
   const { matchId, homeTeam, awayTeam, outcome, stake } = req.body;
-  if (!matchId || !OUTCOMES.includes(outcome))
+  const market = req.body.market ?? 'moneyline';
+  if (!matchId || !MARKETS[market]?.includes(outcome))
     return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
@@ -666,8 +716,11 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     const wallet = await getWallet();
     const userData = touchWallet(wallet, req.user.username);
 
-    if (userData.predictions.find((p) => p.matchId === matchId)) {
-      errorResponse = { status: 400, error: 'You already predicted this match' };
+    // One prediction per (match, market) — a player can hold a moneyline
+    // pick and a total pick and a handicap pick on the same match at once,
+    // just not two picks within the same market.
+    if (userData.predictions.find((p) => p.matchId === matchId && (p.market ?? 'moneyline') === market)) {
+      errorResponse = { status: 400, error: 'You already predicted this market for this match' };
       return null;
     }
 
@@ -688,7 +741,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
     }
 
     const odds = await fetchOddsFromSheet();
-    const multiplier = getOddsMultiplier(odds, matchId, outcome);
+    const multiplier = getOddsMultiplier(odds, matchId, market, outcome);
     if (multiplier == null) {
       errorResponse = { status: 400, error: 'Odds are not available for this match yet' };
       return null;
@@ -701,7 +754,11 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
       matchId,
       homeTeam,
       awayTeam,
+      market,
       outcome,
+      // Pinned at placement — see marketOutcomeWins for why this can't float
+      // like the payout multiplier does.
+      line: market === 'moneyline' ? null : getOddsLine(odds, matchId, market),
       stake,
       status: 'pending',
       payout: null,
@@ -725,7 +782,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
   const { legs, stake } = req.body;
   if (!Array.isArray(legs) || legs.length < STEP_MIN_LEGS || legs.length > STEP_MAX_LEGS)
     return res.status(400).json({ error: `Step must have ${STEP_MIN_LEGS}-${STEP_MAX_LEGS} matches` });
-  if (!legs.every((l) => l && l.matchId && OUTCOMES.includes(l.outcome) && l.homeTeam && l.awayTeam))
+  if (!legs.every((l) => l && l.matchId && MARKETS[l.market ?? 'moneyline']?.includes(l.outcome) && l.homeTeam && l.awayTeam))
     return res.status(400).json({ error: 'Missing or invalid fields' });
   if (!Number.isInteger(stake) || stake <= 0)
     return res.status(400).json({ error: 'stake must be a positive integer' });
@@ -745,20 +802,23 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     }
 
     let combinedMultiplier = 1;
+    const legLines = {};
     try {
       const odds = await fetchOddsFromSheet();
       for (const leg of legs) {
+        const legMarket = leg.market ?? 'moneyline';
         const match = await fetchFootballData(`matches/${leg.matchId}`);
         if (!BETTABLE.includes(match.status)) {
           errorResponse = { status: 400, error: 'Predictions are closed for one of these matches' };
           return null;
         }
-        const multiplier = getOddsMultiplier(odds, leg.matchId, leg.outcome);
+        const multiplier = getOddsMultiplier(odds, leg.matchId, legMarket, leg.outcome);
         if (multiplier == null) {
           errorResponse = { status: 400, error: 'Odds are not available for one of these matches yet' };
           return null;
         }
         combinedMultiplier *= multiplier;
+        if (legMarket !== 'moneyline') legLines[leg.matchId] = getOddsLine(odds, leg.matchId, legMarket);
       }
     } catch {
       errorResponse = { status: 502, error: 'Could not verify match status' };
@@ -773,7 +833,10 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
         matchId: l.matchId,
         homeTeam: l.homeTeam,
         awayTeam: l.awayTeam,
+        market: l.market ?? 'moneyline',
         outcome: l.outcome,
+        // Pinned at placement, same reasoning as single predictions.
+        line: (l.market ?? 'moneyline') === 'moneyline' ? null : legLines[l.matchId],
         status: 'pending',
       })),
       stake,

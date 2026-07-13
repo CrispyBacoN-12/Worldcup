@@ -23,7 +23,12 @@ export const PointsProvider = ({ children }) => {
   }, []);
 
   const getMultiplier = useCallback(
-    (matchId, outcome) => odds[matchId]?.[outcome],
+    (matchId, market, outcome) => odds[matchId]?.[market]?.[outcome],
+    [odds]
+  );
+
+  const getLine = useCallback(
+    (matchId, market) => odds[matchId]?.[market]?.line,
     [odds]
   );
 
@@ -57,10 +62,10 @@ export const PointsProvider = ({ children }) => {
   // left unstaked when it expires is just gone, it does not become points.
   const availableBalance = dailyGrants.reduce((sum, g) => sum + g.remaining, 0);
 
-  const submitPrediction = async ({ matchId, homeTeam, awayTeam, outcome, stake }) => {
+  const submitPrediction = async ({ matchId, homeTeam, awayTeam, market, outcome, stake }) => {
     const res = await axios.post(
       `${BASE}/api/predictions`,
-      { matchId, homeTeam, awayTeam, outcome, stake },
+      { matchId, homeTeam, awayTeam, market, outcome, stake },
       { headers: { Authorization: `Bearer ${user.token}` } }
     );
     setPredictions((prev) => [res.data.prediction, ...prev]);
@@ -98,7 +103,7 @@ export const PointsProvider = ({ children }) => {
   };
 
   return (
-    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, pointsError, getMultiplier, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
+    <PointsContext.Provider value={{ points, dailyGrants, availableBalance, predictions, stepPredictions, championPick, awardPicks, pointsError, getMultiplier, getLine, fetchPoints, submitPrediction, submitStepPrediction, submitChampionPick, submitAwardPick }}>
       {children}
     </PointsContext.Provider>
   );

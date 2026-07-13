@@ -178,6 +178,11 @@
   margin-bottom: 0.75rem;
 }
 
+.bet-outcomes.bet-outcomes-2 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto;
+}
+
 .bet-outcome-btn {
   display: flex;
   flex-direction: column;

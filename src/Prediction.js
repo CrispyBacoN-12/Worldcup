@@ -6,21 +6,66 @@ import './Prediction.css';
 const STEP_MIN_LEGS = 2;
 const STEP_MAX_LEGS = 10;
 
+const MARKET_META = [
+  { key: 'moneyline', title: 'Predict Winner — stake money, win at the odds' },
+  { key: 'total', title: 'Total Goals' },
+  { key: 'handicap', title: 'Handicap' },
+];
+
+const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+// Pure label formatter — no component state, reused for live picks, existing
+// bets, and step-slip legs alike (all of which carry their own market/line).
+const marketOutcomeLabel = (homeAbbr, awayAbbr, market, outcome, line) => {
+  if (market === 'total') return outcome === 'over' ? `Over ${line}` : `Under ${line}`;
+  if (market === 'handicap') {
+    const teamAbbr = outcome === 'home' ? homeAbbr : awayAbbr;
+    const teamLine = outcome === 'home' ? line : -line;
+    return `${teamAbbr} ${signed(teamLine)}`;
+  }
+  if (outcome === 'home') return homeAbbr;
+  if (outcome === 'away') return awayAbbr;
+  if (outcome === 'draw') return 'Draw';
+  if (outcome === '1X') return `${homeAbbr} or Draw`;
+  if (outcome === '12') return `${homeAbbr} or ${awayAbbr}`;
+  if (outcome === 'X2') return `Draw or ${awayAbbr}`;
+  return outcome;
+};
+
+const OutcomeButtons = ({ buttons, selectedKey, onSelect }) => (
+  <div className={`bet-outcomes ${buttons.length <= 2 ? 'bet-outcomes-2' : ''}`}>
+    {buttons.map(({ key, label, multiplier }) => {
+      const unavailable = multiplier == null;
+      return (
+        <button
+          key={key}
+          className={`bet-outcome-btn ${selectedKey === key ? 'selected' : ''}`}
+          onClick={() => !unavailable && onSelect(key)}
+          disabled={unavailable}
+        >
+          <span className="outcome-label">{label}</span>
+          <span className="outcome-multiplier">{unavailable ? 'N/A' : `×${multiplier}`}</span>
+        </button>
+      );
+    })}
+  </div>
+);
+
 const Prediction = () => {
-  const [mode, setMode] = useState('single');     // 'single' | 'step'
-  const [picks, setPicks] = useState({});          // { [matchId]: 'home'|'draw'|'away' }
-  const [stakes, setStakes] = useState({});        // { [matchId]: string }
+  const [mode, setMode] = useState('single');       // 'single' | 'step'
+  const [picks, setPicks] = useState({});            // { [matchId]: { market, outcome } }
+  const [stakes, setStakes] = useState({});          // { [matchId]: string }
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const [stepPicks, setStepPicks] = useState({});  // { [matchId]: 'home'|'draw'|'away' }
+  const [stepPicks, setStepPicks] = useState({});    // { [matchId]: { market, outcome } }
   const [stepStake, setStepStake] = useState('');
   const [stepSubmitting, setStepSubmitting] = useState(false);
   const [stepError, setStepError] = useState('');
 
   const {
     points, dailyGrants, predictions: serverPredictions, stepPredictions,
-    submitPrediction, submitStepPrediction, availableBalance, getMultiplier, pointsError,
+    submitPrediction, submitStepPrediction, availableBalance, getMultiplier, getLine, pointsError,
   } = usePoints();
 
   // Predictions open for tomorrow's matches, by Thailand calendar date (UTC+7).
@@ -31,8 +76,22 @@ const Prediction = () => {
     .filter((m) => m.stage !== 'GROUP_STAGE' && thaiDate(new Date(m.utcDate).getTime()) === tomorrowThai)
     .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
 
-  const setPick = (matchId, outcome) => {
-    setPicks(prev => ({ ...prev, [matchId]: prev[matchId] === outcome ? null : outcome }));
+  const homeAbbr = (match) => match.homeTeam.shortName || match.homeTeam.name;
+  const awayAbbr = (match) => match.awayTeam.shortName || match.awayTeam.name;
+
+  // Only one active (not-yet-submitted) pick per match, across all 3 markets —
+  // picking a Total outcome clears any Moneyline/Handicap pick on that same
+  // card, since there's a single shared stake input per card.
+  const setPick = (matchId, market, outcome) => {
+    setPicks(prev => {
+      const current = prev[matchId];
+      if (current && current.market === market && current.outcome === outcome) {
+        const next = { ...prev };
+        delete next[matchId];
+        return next;
+      }
+      return { ...prev, [matchId]: { market, outcome } };
+    });
     setPickErrors(prev => ({ ...prev, [matchId]: '' }));
   };
 
@@ -47,20 +106,21 @@ const Prediction = () => {
   };
 
   const handleSubmitPick = async (match) => {
-    const outcome = picks[match.id];
-    if (!outcome || !stakeIsValid(match.id)) return;
+    const pick = picks[match.id];
+    if (!pick || !stakeIsValid(match.id)) return;
 
     setPickLoading(prev => ({ ...prev, [match.id]: true }));
     setPickErrors(prev => ({ ...prev, [match.id]: '' }));
     try {
       await submitPrediction({
         matchId: match.id,
-        homeTeam: match.homeTeam.shortName || match.homeTeam.name,
-        awayTeam: match.awayTeam.shortName || match.awayTeam.name,
-        outcome,
+        homeTeam: homeAbbr(match),
+        awayTeam: awayAbbr(match),
+        market: pick.market,
+        outcome: pick.outcome,
         stake: Number(stakes[match.id]),
       });
-      setPicks(prev => ({ ...prev, [match.id]: null }));
+      setPicks(prev => { const next = { ...prev }; delete next[match.id]; return next; });
       setStakes(prev => ({ ...prev, [match.id]: '' }));
     } catch (err) {
       setPickErrors(prev => ({
@@ -75,21 +135,22 @@ const Prediction = () => {
   const openSteps = stepPredictions.filter((s) => s.status === 'pending');
   const hasOpenStep = openSteps.length > 0;
 
-  const setStepPick = (matchId, outcome) => {
+  const setStepPick = (matchId, market, outcome) => {
     setStepPicks(prev => {
-      if (prev[matchId] === outcome) {
+      const current = prev[matchId];
+      if (current && current.market === market && current.outcome === outcome) {
         const next = { ...prev };
         delete next[matchId];
         return next;
       }
-      return { ...prev, [matchId]: outcome };
+      return { ...prev, [matchId]: { market, outcome } };
     });
     setStepError('');
   };
 
   const stepLegIds = Object.keys(stepPicks);
   const stepCombinedMultiplier = stepLegIds.reduce(
-    (acc, matchId) => acc * getMultiplier(Number(matchId), stepPicks[matchId]),
+    (acc, matchId) => acc * getMultiplier(Number(matchId), stepPicks[matchId].market, stepPicks[matchId].outcome),
     1
   );
   const stepStakeValue = Number(stepStake);
@@ -105,11 +166,13 @@ const Prediction = () => {
     try {
       const legs = stepLegIds.map((matchId) => {
         const match = matches.find((m) => m.id === Number(matchId));
+        const { market, outcome } = stepPicks[matchId];
         return {
           matchId: Number(matchId),
-          homeTeam: match.homeTeam.shortName || match.homeTeam.name,
-          awayTeam: match.awayTeam.shortName || match.awayTeam.name,
-          outcome: stepPicks[matchId],
+          homeTeam: homeAbbr(match),
+          awayTeam: awayAbbr(match),
+          market,
+          outcome,
         };
       });
       await submitStepPrediction({ legs, stake: stepStakeValue });
@@ -122,27 +185,25 @@ const Prediction = () => {
     }
   };
 
-  const homeAbbr = (match) => match.homeTeam.shortName || match.homeTeam.name;
-  const awayAbbr = (match) => match.awayTeam.shortName || match.awayTeam.name;
-
-  const outcomeLabel = (match, outcome) => {
-    if (outcome === 'home') return homeAbbr(match);
-    if (outcome === 'away') return awayAbbr(match);
-    if (outcome === 'draw') return 'Draw';
-    if (outcome === '1X') return `${homeAbbr(match)} or Draw`;
-    if (outcome === '12') return `${homeAbbr(match)} or ${awayAbbr(match)}`;
-    if (outcome === 'X2') return `Draw or ${awayAbbr(match)}`;
-    return outcome;
+  // Buttons for one market row on one match. Total/handicap return [] when
+  // the sheet doesn't offer that market for this match yet (no line).
+  const marketButtons = (match, market) => {
+    if (market === 'moneyline') {
+      return ['home', 'draw', 'away', '1X', '12', 'X2'].map((key) => ({
+        key,
+        label: marketOutcomeLabel(homeAbbr(match), awayAbbr(match), 'moneyline', key, null),
+        multiplier: getMultiplier(match.id, 'moneyline', key),
+      }));
+    }
+    const line = getLine(match.id, market);
+    if (line == null) return [];
+    const keys = market === 'total' ? ['over', 'under'] : ['home', 'away'];
+    return keys.map((key) => ({
+      key,
+      label: marketOutcomeLabel(homeAbbr(match), awayAbbr(match), market, key, line),
+      multiplier: getMultiplier(match.id, market, key),
+    }));
   };
-
-  const outcomeButtons = (match) => [
-    { key: 'home', label: homeAbbr(match) },
-    { key: 'draw', label: 'Draw' },
-    { key: 'away', label: awayAbbr(match) },
-    { key: '1X', label: '1X' },
-    { key: '12', label: '12' },
-    { key: 'X2', label: 'X2' },
-  ];
 
   const formatDate = (dateStr) => {
     const d = new Date(dateStr);
@@ -201,7 +262,7 @@ const Prediction = () => {
           <div className="existing-bet-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
             {step.legs.map((leg) => (
               <span key={leg.matchId} className="existing-pick">
-                {leg.homeTeam} vs {leg.awayTeam} — {outcomeLabel({ homeTeam: { name: leg.homeTeam }, awayTeam: { name: leg.awayTeam } }, leg.outcome)}
+                {leg.homeTeam} vs {leg.awayTeam} — {marketOutcomeLabel(leg.homeTeam, leg.awayTeam, leg.market ?? 'moneyline', leg.outcome, leg.line)}
               </span>
             ))}
             <span className="existing-detail">
@@ -214,7 +275,6 @@ const Prediction = () => {
       <div className="prediction-list">
         {matches.map(match => {
           const pick = picks[match.id];
-          const existing = serverPredictions?.find((p) => p.matchId === match.id);
           const stepPick = stepPicks[match.id];
 
           return (
@@ -234,111 +294,103 @@ const Prediction = () => {
               </div>
 
               {mode === 'single' ? (
-                <div className="bet-section">
-                  <div className="bet-section-title">Predict Winner — stake money, win at the odds</div>
+                MARKET_META.map(({ key: market, title }) => {
+                  const buttons = marketButtons(match, market);
+                  const existing = serverPredictions?.find(
+                    (p) => p.matchId === match.id && (p.market ?? 'moneyline') === market
+                  );
+                  // Total/handicap sections stay hidden until the sheet offers
+                  // a line for this match (unless there's already a settled/
+                  // pending bet on it, which must keep showing regardless).
+                  if (market !== 'moneyline' && buttons.length === 0 && !existing) return null;
 
-                  {existing ? (
-                    <div className="existing-bet">
-                      <span className="existing-bet-label">Your Prediction</span>
-                      <div className="existing-bet-info">
-                        <span className="existing-pick">
-                          {outcomeLabel(match, existing.outcome)}
-                          {' — Staked $' + existing.stake}
-                        </span>
-                        <span className="existing-detail">
-                          {existing.status === 'pending'
-                            ? 'Waiting for result…'
-                            : existing.status === 'correct'
-                              ? `Correct! Won ${existing.payout} pts ⭐`
-                              : 'Wrong — stake lost'}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="bet-outcomes">
-                        {outcomeButtons(match).map(({ key, label }) => {
-                          const multiplier = getMultiplier(match.id, key);
-                          const unavailable = multiplier == null;
-                          return (
-                            <button
-                              key={key}
-                              className={`bet-outcome-btn ${pick === key ? 'selected' : ''}`}
-                              onClick={() => !unavailable && setPick(match.id, key)}
-                              disabled={unavailable}
-                            >
-                              <span className="outcome-label">{label}</span>
-                              <span className="outcome-multiplier">
-                                {unavailable ? 'N/A' : `×${multiplier}`}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                  return (
+                    <div className="bet-section" key={market}>
+                      <div className="bet-section-title">{title}</div>
 
-                      {pick && (() => {
-                        const multiplier = getMultiplier(match.id, pick);
-                        const stakeValue = Number(stakes[match.id]);
-                        const potentialPayout = stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
-                        return (
-                          <div className="bet-controls">
-                            <div className="stake-input-wrapper">
-                              <span className="stake-input-prefix">$</span>
-                              <input
-                                type="number"
-                                min="1"
-                                className="stake-input"
-                                placeholder="0"
-                                value={stakes[match.id] ?? ''}
-                                onChange={(e) => setStake(match.id, e.target.value)}
-                              />
-                            </div>
-                            <div className="payout-preview">
-                              <span className="payout-preview-text">
-                                {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
-                              </span>
-                              <span className="odds-badge">×{multiplier}</span>
-                            </div>
-                            <button
-                              className="bet-submit-btn"
-                              onClick={() => handleSubmitPick(match)}
-                              disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
-                            >
-                              {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
-                            </button>
+                      {existing ? (
+                        <div className="existing-bet">
+                          <span className="existing-bet-label">Your Prediction</span>
+                          <div className="existing-bet-info">
+                            <span className="existing-pick">
+                              {marketOutcomeLabel(homeAbbr(match), awayAbbr(match), market, existing.outcome, existing.line)}
+                              {' — Staked $' + existing.stake}
+                            </span>
+                            <span className="existing-detail">
+                              {existing.status === 'pending'
+                                ? 'Waiting for result…'
+                                : existing.status === 'correct'
+                                  ? `Correct! Won ${existing.payout} pts ⭐`
+                                  : 'Wrong — stake lost'}
+                            </span>
                           </div>
-                        );
-                      })()}
+                        </div>
+                      ) : (
+                        <>
+                          <OutcomeButtons
+                            buttons={buttons}
+                            selectedKey={pick?.market === market ? pick.outcome : null}
+                            onSelect={(key) => setPick(match.id, market, key)}
+                          />
 
-                      {pickErrors[match.id] && (
-                        <div className="bet-error">{pickErrors[match.id]}</div>
+                          {pick?.market === market && (() => {
+                            const multiplier = getMultiplier(match.id, market, pick.outcome);
+                            const stakeValue = Number(stakes[match.id]);
+                            const potentialPayout = stakeValue > 0 ? Math.round(stakeValue * multiplier) : 0;
+                            return (
+                              <div className="bet-controls">
+                                <div className="stake-input-wrapper">
+                                  <span className="stake-input-prefix">$</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    className="stake-input"
+                                    placeholder="0"
+                                    value={stakes[match.id] ?? ''}
+                                    onChange={(e) => setStake(match.id, e.target.value)}
+                                  />
+                                </div>
+                                <div className="payout-preview">
+                                  <span className="payout-preview-text">
+                                    {potentialPayout > 0 ? `รับ ${potentialPayout.toLocaleString()} pts` : 'ใส่จำนวนเงิน'}
+                                  </span>
+                                  <span className="odds-badge">×{multiplier}</span>
+                                </div>
+                                <button
+                                  className="bet-submit-btn"
+                                  onClick={() => handleSubmitPick(match)}
+                                  disabled={pickLoading[match.id] || !stakeIsValid(match.id)}
+                                >
+                                  {pickLoading[match.id] ? <span className="btn-spinner-small" /> : 'Confirm Prediction'}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {pick?.market === market && pickErrors[match.id] && (
+                            <div className="bet-error">{pickErrors[match.id]}</div>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
+                    </div>
+                  );
+                })
               ) : (
-                <div className="bet-section">
-                  <div className="bet-section-title">Add to Step — pick a result for this match</div>
-                  <div className="bet-outcomes">
-                    {outcomeButtons(match).map(({ key, label }) => {
-                      const multiplier = getMultiplier(match.id, key);
-                      const unavailable = multiplier == null;
-                      return (
-                        <button
-                          key={key}
-                          className={`bet-outcome-btn ${stepPick === key ? 'selected' : ''}`}
-                          onClick={() => !unavailable && setStepPick(match.id, key)}
-                          disabled={unavailable}
-                        >
-                          <span className="outcome-label">{label}</span>
-                          <span className="outcome-multiplier">
-                            {unavailable ? 'N/A' : `×${multiplier}`}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                MARKET_META.map(({ key: market, title }) => {
+                  const buttons = marketButtons(match, market);
+                  if (market !== 'moneyline' && buttons.length === 0) return null;
+
+                  return (
+                    <div className="bet-section" key={market}>
+                      <div className="bet-section-title">Add to Step — {title}</div>
+                      <OutcomeButtons
+                        buttons={buttons}
+                        selectedKey={stepPick?.market === market ? stepPick.outcome : null}
+                        onSelect={(key) => setStepPick(match.id, market, key)}
+                      />
+                    </div>
+                  );
+                })
               )}
             </div>
           );
@@ -351,14 +403,15 @@ const Prediction = () => {
           <div className="step-slip-legs">
             {stepLegIds.map((matchId) => {
               const match = matches.find((m) => m.id === Number(matchId));
-              const outcome = stepPicks[matchId];
+              const { market, outcome } = stepPicks[matchId];
+              const line = getLine(Number(matchId), market);
               return (
                 <div key={matchId} className="step-slip-leg">
                   <span className="step-slip-leg-label">
                     {match.homeTeam.shortName || match.homeTeam.name} vs {match.awayTeam.shortName || match.awayTeam.name}
-                    {' — '}{outcomeLabel(match, outcome)}
+                    {' — '}{marketOutcomeLabel(homeAbbr(match), awayAbbr(match), market, outcome, line)}
                   </span>
-                  <button className="step-slip-remove" onClick={() => setStepPick(matchId, outcome)}>✕</button>
+                  <button className="step-slip-remove" onClick={() => setStepPick(matchId, market, outcome)}>✕</button>
                 </div>
               );
             })}
