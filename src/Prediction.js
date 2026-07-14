@@ -52,7 +52,11 @@ const OutcomeButtons = ({ buttons, selectedKey, onSelect }) => (
 );
 
 const Prediction = () => {
-  const [mode, setMode] = useState('single');       // 'single' | 'step'
+  // Step mode's toggle is hidden — the schedule is down to one match per day,
+  // so there's nothing left to combine into a parlay. Kept as a constant
+  // (not removed) so already-placed pending steps still settle and display
+  // via openSteps below and the server-side step routes.
+  const mode = 'single';
   const [picks, setPicks] = useState({});            // { [matchId]: { market, outcome, line } }
   const [stakes, setStakes] = useState({});          // { [matchId]: string }
   const [pickLoading, setPickLoading] = useState({});
@@ -248,22 +252,7 @@ const Prediction = () => {
         </div>
       )}
 
-      <div className="mode-toggle">
-        <button
-          className={`mode-toggle-btn ${mode === 'single' ? 'active' : ''}`}
-          onClick={() => setMode('single')}
-        >
-          Single
-        </button>
-        <button
-          className={`mode-toggle-btn ${mode === 'step' ? 'active' : ''}`}
-          onClick={() => setMode('step')}
-        >
-          Step (สเตป)
-        </button>
-      </div>
-
-      {mode === 'step' && hasOpenStep && openSteps.map((step) => (
+      {hasOpenStep && openSteps.map((step) => (
         <div key={step.id} className="existing-bet" style={{ marginBottom: '1rem' }}>
           <span className="existing-bet-label">Your Open Step</span>
           <div className="existing-bet-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
