@@ -400,22 +400,29 @@ const outcomeWins = (outcome, winner) => {
   return false;
 };
 
-// Regular-time goal-based win check for total/handicap markets. `regular`
-// is regularTimeResult(match) — { home, away } — already computed by the
+// Regular-time goal-based result for total/handicap markets. `regular` is
+// regularTimeResult(match) — { home, away } — already computed by the
 // caller before this is invoked. `line` is the value stored on the
 // prediction/leg at placement time (see the placement routes), not
 // re-read from the sheet — the line defines the bet itself, so it can't be
 // allowed to drift the way the payout multiplier is (see settlePredictions).
-const marketOutcomeWins = (market, outcome, line, regular) => {
+//
+// Returns 'win' | 'lose' | 'push'. A whole-number line (e.g. Total 2,
+// Handicap -2) can land exactly on the actual result — that's a push, not a
+// loss for both sides: it settles as a win with the multiplier locked to 1
+// (stake back as points, no profit), handled by the callers below.
+const marketOutcomeResult = (market, outcome, line, regular) => {
   if (market === 'total') {
     const totalGoals = regular.home + regular.away;
-    return outcome === 'over' ? totalGoals > line : totalGoals < line;
+    if (totalGoals === line) return 'push';
+    return (outcome === 'over' ? totalGoals > line : totalGoals < line) ? 'win' : 'lose';
   }
   if (market === 'handicap') {
     const adjustedHome = regular.home + line;
-    return outcome === 'home' ? adjustedHome > regular.away : adjustedHome < regular.away;
+    if (adjustedHome === regular.away) return 'push';
+    return (outcome === 'home' ? adjustedHome > regular.away : adjustedHome < regular.away) ? 'win' : 'lose';
   }
-  return false;
+  return 'lose';
 };
 
 // Predictions bet on the regular-time (90 min) result, not the match's
@@ -468,15 +475,19 @@ const settlePredictions = async (username) => {
       if (!regularTimeKnown(match)) continue;
 
       const market = prediction.market ?? 'moneyline';
-      const correct = market === 'moneyline'
-        ? outcomeWins(prediction.outcome, regularTimeWinner(match))
-        : marketOutcomeWins(market, prediction.outcome, prediction.line, regularTimeResult(match));
+      const result = market === 'moneyline'
+        ? (outcomeWins(prediction.outcome, regularTimeWinner(match)) ? 'win' : 'lose')
+        : marketOutcomeResult(market, prediction.outcome, prediction.line, regularTimeResult(match));
+      const correct = result !== 'lose';
 
       // Odds can change in the sheet between placement and settlement; fall
       // back to the multiplier of 1 (no winnings beyond the stake) rather
-      // than letting a missing row turn a real win into a NaN payout.
+      // than letting a missing row turn a real win into a NaN payout. A push
+      // always settles at the multiplier locked to 1, regardless of odds.
       const odds = await fetchOddsFromSheet();
-      const multiplier = getOddsMultiplier(odds, prediction.matchId, market, prediction.outcome, prediction.line) ?? 1;
+      const multiplier = result === 'push'
+        ? 1
+        : getOddsMultiplier(odds, prediction.matchId, market, prediction.outcome, prediction.line) ?? 1;
       prediction.payout = correct ? Math.round(prediction.stake * multiplier) : 0;
       prediction.status = correct ? 'correct' : 'wrong';
       prediction.settledAt = new Date().toISOString();
@@ -516,10 +527,11 @@ const settleStepPrediction = async (username) => {
         if (!regularTimeKnown(match)) continue;
 
         const legMarket = leg.market ?? 'moneyline';
-        const legCorrect = legMarket === 'moneyline'
-          ? outcomeWins(leg.outcome, regularTimeWinner(match))
-          : marketOutcomeWins(legMarket, leg.outcome, leg.line, regularTimeResult(match));
-        leg.status = legCorrect ? 'correct' : 'wrong';
+        const legResult = legMarket === 'moneyline'
+          ? (outcomeWins(leg.outcome, regularTimeWinner(match)) ? 'win' : 'lose')
+          : marketOutcomeResult(legMarket, leg.outcome, leg.line, regularTimeResult(match));
+        leg.status = legResult === 'lose' ? 'wrong' : 'correct';
+        if (legResult === 'push') leg.isPush = true;
         changed = true;
         if (leg.status === 'wrong') anyWrong = true;
       } catch {
@@ -534,7 +546,14 @@ const settleStepPrediction = async (username) => {
       changed = true;
     } else if (allCorrect) {
       step.status = 'correct';
-      step.payout = Math.round(step.stake * step.combinedMultiplier);
+      // A pushed leg's contribution locks to 1 instead of its real odds.
+      // Legs placed before per-leg multipliers were stored fall back to the
+      // pre-pinned combined multiplier (push adjustment skipped for those).
+      const hasLegMultipliers = step.legs.every((leg) => typeof leg.multiplier === 'number');
+      const finalMultiplier = hasLegMultipliers
+        ? step.legs.reduce((acc, leg) => acc * (leg.isPush ? 1 : leg.multiplier), 1)
+        : step.combinedMultiplier;
+      step.payout = Math.round(step.stake * finalMultiplier);
       step.settledAt = new Date().toISOString();
       userData.points += step.payout;
       changed = true;
@@ -838,7 +857,7 @@ app.post('/api/predictions', verifyToken, async (req, res) => {
       awayTeam,
       market,
       outcome,
-      // Pinned at placement — see marketOutcomeWins for why this can't float
+      // Pinned at placement — see marketOutcomeResult for why this can't float
       // like the payout multiplier does. Already validated above (the
       // multiplier lookup only succeeds for a line the sheet actually offers).
       line,
@@ -891,6 +910,10 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     }
 
     let combinedMultiplier = 1;
+    // Each leg's own multiplier is stored on the leg (not just the combined
+    // product) so that settlement can recompute the payout if any leg pushes
+    // — a pushed leg's contribution drops to 1 instead of its real odds.
+    const legMultipliers = [];
     try {
       const odds = await fetchOddsFromSheet();
       for (const leg of legs) {
@@ -906,6 +929,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
           errorResponse = { status: 400, error: 'Odds are not available for one of these matches yet' };
           return null;
         }
+        legMultipliers.push(multiplier);
         combinedMultiplier *= multiplier;
       }
     } catch {
@@ -917,7 +941,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
 
     const stepPrediction = {
       id: Date.now().toString(),
-      legs: legs.map((l) => ({
+      legs: legs.map((l, i) => ({
         matchId: l.matchId,
         homeTeam: l.homeTeam,
         awayTeam: l.awayTeam,
@@ -927,6 +951,7 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
         // validated above (the multiplier lookup only succeeds for a line
         // the sheet actually offers).
         line: (l.market ?? 'moneyline') === 'moneyline' ? null : l.line,
+        multiplier: legMultipliers[i],
         status: 'pending',
       })),
       stake,
