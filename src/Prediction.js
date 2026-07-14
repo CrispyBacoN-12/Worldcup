@@ -58,7 +58,7 @@ const Prediction = () => {
   const [pickLoading, setPickLoading] = useState({});
   const [pickErrors, setPickErrors] = useState({});
 
-  const [stepPicks, setStepPicks] = useState({});    // { [matchId]: { market, outcome, line } }
+  const [stepPicks, setStepPicks] = useState({});    // { [matchId|market|line]: { matchId, market, outcome, line } }
   const [stepStake, setStepStake] = useState('');
   const [stepSubmitting, setStepSubmitting] = useState(false);
   const [stepError, setStepError] = useState('');
@@ -79,10 +79,10 @@ const Prediction = () => {
   const homeAbbr = (match) => match.homeTeam.shortName || match.homeTeam.name;
   const awayAbbr = (match) => match.awayTeam.shortName || match.awayTeam.name;
 
-  // Only one active (not-yet-submitted) pick per match, across all 3 markets
-  // and all lines within a market — picking a Total 3.5 outcome clears any
-  // Total 2.5 / Moneyline / Handicap pick on that same card, since there's a
-  // single shared stake input per card.
+  // Single mode: only one active (not-yet-submitted) pick per match, across
+  // all 3 markets and all lines within a market — picking a Total 3.5 outcome
+  // clears any Total 2.5 / Moneyline / Handicap pick on that same card, since
+  // there's a single shared stake input per card.
   const setPick = (matchId, market, outcome, line) => {
     setPicks(prev => {
       const current = prev[matchId];
@@ -137,40 +137,47 @@ const Prediction = () => {
   const openSteps = stepPredictions.filter((s) => s.status === 'pending');
   const hasOpenStep = openSteps.length > 0;
 
+  // Step mode: keyed by match+market+line so a step can hold multiple legs
+  // on the same match (e.g. Moneyline + Total together) — picking a new
+  // outcome for the same market+line replaces the old one (they'd
+  // contradict), but a different market or line adds a separate leg.
+  const stepPickKey = (matchId, market, line) => `${matchId}|${market}|${line ?? 'null'}`;
+
   const setStepPick = (matchId, market, outcome, line) => {
+    const key = stepPickKey(matchId, market, line);
     setStepPicks(prev => {
-      const current = prev[matchId];
-      if (current && current.market === market && current.outcome === outcome && (current.line ?? null) === (line ?? null)) {
+      const current = prev[key];
+      if (current && current.outcome === outcome) {
         const next = { ...prev };
-        delete next[matchId];
+        delete next[key];
         return next;
       }
-      return { ...prev, [matchId]: { market, outcome, line: line ?? null } };
+      return { ...prev, [key]: { matchId, market, outcome, line: line ?? null } };
     });
     setStepError('');
   };
 
-  const stepLegIds = Object.keys(stepPicks);
-  const stepCombinedMultiplier = stepLegIds.reduce(
-    (acc, matchId) => acc * getMultiplier(Number(matchId), stepPicks[matchId].market, stepPicks[matchId].outcome, stepPicks[matchId].line ?? null),
-    1
-  );
+  const stepLegKeys = Object.keys(stepPicks);
+  const stepCombinedMultiplier = stepLegKeys.reduce((acc, key) => {
+    const { matchId, market, outcome, line } = stepPicks[key];
+    return acc * getMultiplier(matchId, market, outcome, line);
+  }, 1);
   const stepStakeValue = Number(stepStake);
   const stepStakeIsValid = stepStake !== '' && Number.isInteger(stepStakeValue) &&
     stepStakeValue > 0 && stepStakeValue <= availableBalance;
   const stepPotentialPayout = stepStakeIsValid ? Math.round(stepStakeValue * stepCombinedMultiplier) : 0;
-  const stepCanSubmit = stepLegIds.length >= STEP_MIN_LEGS && stepLegIds.length <= STEP_MAX_LEGS && stepStakeIsValid;
+  const stepCanSubmit = stepLegKeys.length >= STEP_MIN_LEGS && stepLegKeys.length <= STEP_MAX_LEGS && stepStakeIsValid;
 
   const handleSubmitStep = async () => {
     if (!stepCanSubmit) return;
     setStepSubmitting(true);
     setStepError('');
     try {
-      const legs = stepLegIds.map((matchId) => {
-        const match = matches.find((m) => m.id === Number(matchId));
-        const { market, outcome, line } = stepPicks[matchId];
+      const legs = stepLegKeys.map((key) => {
+        const { matchId, market, outcome, line } = stepPicks[key];
+        const match = matches.find((m) => m.id === matchId);
         return {
-          matchId: Number(matchId),
+          matchId,
           homeTeam: homeAbbr(match),
           awayTeam: awayAbbr(match),
           market,
@@ -274,7 +281,6 @@ const Prediction = () => {
       <div className="prediction-list">
         {matches.map(match => {
           const pick = picks[match.id];
-          const stepPick = stepPicks[match.id];
 
           return (
             <div key={match.id} className="prediction-card card">
@@ -397,13 +403,13 @@ const Prediction = () => {
                       <div className="bet-section-title">Add to Step — {title}</div>
                       {lines.map((line) => {
                         const buttons = lineButtons(match, market, line);
-                        const isPicked = stepPick?.market === market && (stepPick.line ?? null) === line;
+                        const stepPick = stepPicks[stepPickKey(match.id, market, line)];
                         return (
                           <div className="bet-line-row" key={line ?? 'ml'}>
                             {market !== 'moneyline' && <div className="bet-line-label">Line {line}</div>}
                             <OutcomeButtons
                               buttons={buttons}
-                              selectedKey={isPicked ? stepPick.outcome : null}
+                              selectedKey={stepPick ? stepPick.outcome : null}
                               onSelect={(key) => setStepPick(match.id, market, key, line)}
                             />
                           </div>
@@ -418,30 +424,30 @@ const Prediction = () => {
         })}
       </div>
 
-      {mode === 'step' && stepLegIds.length > 0 && (
+      {mode === 'step' && stepLegKeys.length > 0 && (
         <div className="step-slip card">
-          <div className="bet-section-title">Step Slip ({stepLegIds.length}/{STEP_MAX_LEGS} matches)</div>
+          <div className="bet-section-title">Step Slip ({stepLegKeys.length}/{STEP_MAX_LEGS} picks)</div>
           <div className="step-slip-legs">
-            {stepLegIds.map((matchId) => {
-              const match = matches.find((m) => m.id === Number(matchId));
-              const { market, outcome, line } = stepPicks[matchId];
+            {stepLegKeys.map((key) => {
+              const { matchId, market, outcome, line } = stepPicks[key];
+              const match = matches.find((m) => m.id === matchId);
               return (
-                <div key={matchId} className="step-slip-leg">
+                <div key={key} className="step-slip-leg">
                   <span className="step-slip-leg-label">
                     {match.homeTeam.shortName || match.homeTeam.name} vs {match.awayTeam.shortName || match.awayTeam.name}
                     {' — '}{marketOutcomeLabel(homeAbbr(match), awayAbbr(match), market, outcome, line)}
                   </span>
-                  <button className="step-slip-remove" onClick={() => setStepPick(matchId, market, outcome)}>✕</button>
+                  <button className="step-slip-remove" onClick={() => setStepPick(matchId, market, outcome, line)}>✕</button>
                 </div>
               );
             })}
           </div>
 
-          {stepLegIds.length < STEP_MIN_LEGS && (
-            <div className="detail-bet-prompt">Pick at least {STEP_MIN_LEGS} matches to build a step</div>
+          {stepLegKeys.length < STEP_MIN_LEGS && (
+            <div className="detail-bet-prompt">Pick at least {STEP_MIN_LEGS} picks to build a step</div>
           )}
 
-          {stepLegIds.length >= STEP_MIN_LEGS && (
+          {stepLegKeys.length >= STEP_MIN_LEGS && (
             <div className="bet-controls">
               <div className="stake-input-wrapper">
                 <span className="stake-input-prefix">$</span>
