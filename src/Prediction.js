@@ -137,17 +137,18 @@ const Prediction = () => {
   const openSteps = stepPredictions.filter((s) => s.status === 'pending');
   const hasOpenStep = openSteps.length > 0;
 
-  // Step mode: keyed by match+market+line so a step can hold multiple legs
-  // on the same match (e.g. Moneyline + Total together) — picking a new
-  // outcome for the same market+line replaces the old one (they'd
-  // contradict), but a different market or line adds a separate leg.
-  const stepPickKey = (matchId, market, line) => `${matchId}|${market}|${line ?? 'null'}`;
+  // Step mode: keyed by match+market (not line), so a step can hold multiple
+  // legs on the same match (e.g. Moneyline + Total together), but only one
+  // active pick per market per match — picking a different line or outcome
+  // within the same market replaces the previous selection in that market
+  // instead of adding a second, contradictory leg.
+  const stepPickKey = (matchId, market) => `${matchId}|${market}`;
 
   const setStepPick = (matchId, market, outcome, line) => {
-    const key = stepPickKey(matchId, market, line);
+    const key = stepPickKey(matchId, market);
     setStepPicks(prev => {
       const current = prev[key];
-      if (current && current.outcome === outcome) {
+      if (current && current.outcome === outcome && (current.line ?? null) === (line ?? null)) {
         const next = { ...prev };
         delete next[key];
         return next;
@@ -397,19 +398,20 @@ const Prediction = () => {
                 MARKET_META.map(({ key: market, title }) => {
                   const lines = offeredLines(match, market);
                   if (market !== 'moneyline' && lines.length === 0) return null;
+                  const stepPickForMarket = stepPicks[stepPickKey(match.id, market)];
 
                   return (
                     <div className="bet-section" key={market}>
                       <div className="bet-section-title">Add to Step — {title}</div>
                       {lines.map((line) => {
                         const buttons = lineButtons(match, market, line);
-                        const stepPick = stepPicks[stepPickKey(match.id, market, line)];
+                        const isPicked = stepPickForMarket && (stepPickForMarket.line ?? null) === line;
                         return (
                           <div className="bet-line-row" key={line ?? 'ml'}>
                             {market !== 'moneyline' && <div className="bet-line-label">Line {line}</div>}
                             <OutcomeButtons
                               buttons={buttons}
-                              selectedKey={stepPick ? stepPick.outcome : null}
+                              selectedKey={isPicked ? stepPickForMarket.outcome : null}
                               onSelect={(key) => setStepPick(match.id, market, key, line)}
                             />
                           </div>

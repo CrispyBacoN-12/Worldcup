@@ -873,14 +873,12 @@ app.post('/api/step-predictions', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'stake must be a positive integer' });
 
   // A step can hold multiple legs on the same match (e.g. Moneyline + Total
-  // together) as long as they're not the same market+line — that would be
-  // self-contradictory (e.g. Home and Away on the same Moneyline).
-  const legKeys = legs.map((l) => {
-    const legMarket = l.market ?? 'moneyline';
-    return `${l.matchId}|${legMarket}|${legMarket === 'moneyline' ? null : l.line}`;
-  });
+  // together), but only one leg per market per match — two lines/outcomes on
+  // the same market would be self-contradictory (e.g. Home and Away on the
+  // same Moneyline, or Total 2.5 Over and Total 3.5 Under both at once).
+  const legKeys = legs.map((l) => `${l.matchId}|${l.market ?? 'moneyline'}`);
   if (new Set(legKeys).size !== legKeys.length)
-    return res.status(400).json({ error: 'Each match+market+line can only appear once in a step' });
+    return res.status(400).json({ error: 'Each match+market can only appear once in a step' });
 
   let errorResponse = null;
   const result = await withUserLock(req.user.username, async () => {
