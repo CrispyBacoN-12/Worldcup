@@ -99,7 +99,7 @@ const parseLinesCsv = (csvText) => {
     header.forEach((col, i) => { row[col] = cells[i]; });
 
     const matchId = row.matchId;
-    const market = row.market;
+    const market = row.market?.trim().toLowerCase();
     if (!matchId || (market !== 'total' && market !== 'handicap')) continue;
 
     const num = (key) => {
