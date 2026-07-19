@@ -3180,16 +3180,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 773,
+      "name": "France",
+      "shortName": "France",
+      "crest": "https://crests.football-data.org/773.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 770,
+      "name": "England",
+      "shortName": "England",
+      "crest": "https://crests.football-data.org/770.svg"
     }
   },
   {
@@ -3211,16 +3211,16 @@
       "emblem": "https://crests.football-data.org/wm26.png"
     },
     "homeTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 760,
+      "name": "Spain",
+      "shortName": "Spain",
+      "crest": "https://crests.football-data.org/760.svg"
     },
     "awayTeam": {
-      "id": null,
-      "name": null,
-      "shortName": null,
-      "crest": null
+      "id": 762,
+      "name": "Argentina",
+      "shortName": "Argentina",
+      "crest": "https://crests.football-data.org/762.png"
     }
   }
 ]
